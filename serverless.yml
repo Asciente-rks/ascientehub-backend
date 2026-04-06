@@ -7,7 +7,7 @@ frameworkVersion: "4"
 provider:
   name: aws
   runtime: nodejs20.x
-  region: us-east-1
+  region: ap-southeast-1
   stage: dev
   memorySize: 512
   timeout: 30
