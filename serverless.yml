@@ -1,0 +1,47 @@
+service: ascientehub-backend
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: dev
+  memorySize: 512
+  timeout: 30
+  environment:
+    NODE_ENV: production
+    DB_HOST: ${env:DB_HOST}
+    DB_USER: ${env:DB_USER}
+    DB_PASSWORD: ${env:DB_PASSWORD}
+    DB_NAME: ${env:DB_NAME}
+    DB_PORT: ${env:DB_PORT}
+    PAYMONGO_SECRET_KEY: ${env:PAYMONGO_SECRET_KEY}
+    PAYMONGO_PUBLIC_KEY: ${env:PAYMONGO_PUBLIC_KEY}
+    JWT_SECRET: ${env:JWT_SECRET}
+    R2_ENDPOINT: ${env:R2_ENDPOINT}
+    R2_ACCESS_KEY_ID: ${env:R2_ACCESS_KEY_ID}
+    R2_SECRET_ACCESS_KEY: ${env:R2_SECRET_ACCESS_KEY}
+    R2_BUCKET_NAME: ${env:R2_BUCKET_NAME}
+    R2_PUBLIC_URL: ${env:R2_PUBLIC_URL}
+
+package:
+  individually: true
+  exclude:
+    - node_modules/**
+    - src/**
+    - test/**
+    - .git/**
+    - .vscode/**
+    - README.md
+
+functions:
+  api:
+    handler: dist/lambda.handler
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+      - httpApi:
+          path: /
+          method: ANY
