@@ -1,6 +1,8 @@
+org: asciente
+app: ascientehub
 service: ascientehub-backend
 
-frameworkVersion: "3"
+frameworkVersion: "4"
 
 provider:
   name: aws
