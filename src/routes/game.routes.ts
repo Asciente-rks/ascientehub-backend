@@ -4,6 +4,11 @@ import {
   getGames,
   getGameDetails,
 } from "../controllers/game.controller";
+import {
+  getMyGames,
+  editGame,
+  deleteGame,
+} from "../controllers/developer.controller";
 import { authenticateToken } from "../middlewares/auth.middleware";
 import { upload } from "../middlewares/upload.middleware";
 import { validate } from "../middlewares/validator.middleware";
@@ -16,6 +21,13 @@ const router = Router();
  */
 router.get("/", getGames);
 router.get("/:id", getGameDetails);
+
+/**
+ * Developer routes (authenticated)
+ */
+router.get("/dev/my-games", authenticateToken, getMyGames);
+router.patch("/:gameId", authenticateToken, editGame);
+router.delete("/:gameId", authenticateToken, deleteGame);
 
 /**
  * 1. authenticateToken: Ensures the user is logged in.

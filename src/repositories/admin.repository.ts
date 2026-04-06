@@ -19,7 +19,7 @@ export class AdminRepository {
         },
         {
           model: Game,
-          as: "Games", // Assuming 'Games' is the alias in your associations
+          as: "uploads", // Fixed: Use correct alias from associations
         },
       ],
       attributes: ["id", "username", "email", "status", "createdAt"],

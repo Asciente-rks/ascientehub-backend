@@ -18,7 +18,7 @@ export class GameRepository {
     return await Game.findByPk(id, {
       // CRITICAL: Ensure these aliases match your associations in models/index.ts!
       include: [
-        { model: GameMedia, as: "Gallery" },
+        { model: GameMedia, as: "gallery" },
         { model: Category, as: "Category" },
       ],
     });
@@ -62,7 +62,7 @@ export class GameRepository {
     return await Game.findByPk(id, {
       include: [
         { model: Category, as: "Category" },
-        { model: GameMedia, as: "Gallery" },
+        { model: GameMedia, as: "gallery" },
       ],
     });
   }

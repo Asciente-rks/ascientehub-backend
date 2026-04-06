@@ -91,9 +91,14 @@ export class AuthService {
     return user;
   }
 
-  async login(email: string, pass: string) {
-    const user = (await authRepo.findUserByEmail(email)) as any;
-    if (!user || !user.password) throw new Error("Invalid Email or Password.");
+  async login(usernameOrEmail: string, pass: string) {
+    if (!usernameOrEmail || !pass) {
+      throw new Error("Username/email and password are required.");
+    }
+    
+    const user = (await authRepo.findByUsernameOrEmail(usernameOrEmail)) as any;
+    if (!user || !user.password)
+      throw new Error("Invalid username/email or password.");
     if (!user.isVerified) throw new Error("Account not verified.");
 
     // FIXED: Changed ROLE to ROLES
@@ -105,7 +110,7 @@ export class AuthService {
     }
 
     const isMatch = await bcrypt.compare(pass, user.password);
-    if (!isMatch) throw new Error("Invalid Email or Password.");
+    if (!isMatch) throw new Error("Invalid username/email or password.");
 
     const token = jwt.sign(
       {

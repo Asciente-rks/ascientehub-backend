@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getPendingDevelopers,
   reviewDevApplication,
   getUserPurchases,
   getPendingGames,
@@ -7,6 +8,9 @@ import {
 } from "../controllers/admin.controller";
 
 const router = Router();
+
+// GET /api/admin/developers/pending
+router.get("/developers/pending", getPendingDevelopers);
 
 // PATCH /api/admin/review-developer/:userId
 router.patch("/review-developer/:userId", reviewDevApplication);

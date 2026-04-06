@@ -47,9 +47,19 @@ export const verifyOtp = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
-    const { user, token } = await authService.login(email, password);
-    
+    const { username, email, password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: "Password is required" });
+    }
+
+    if (!username && !email) {
+      return res.status(400).json({ message: "Username or email is required" });
+    }
+
+    const usernameOrEmail = username || email;
+    const { user, token } = await authService.login(usernameOrEmail, password);
+
     res.status(200).json({
       message: "Login successful!",
       token,
@@ -86,19 +96,31 @@ export const resetPassword = async (req: Request, res: Response) => {
 };
 
 export const logout = async (req: Request, res: Response) => {
-  res.status(200).json({
-    message: "Logged out successfully. Please clear your tokens.",
-  });
+  try {
+    // For JWT, logout is primarily client-side (clear tokens)
+    // But we can add server-side logic if needed (e.g., token blacklisting)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      // Here you could implement token blacklisting if you add that feature
+      // For now, just return success
+    }
+
+    res.status(200).json({
+      message: "Logged out successfully. Please clear your tokens on the client side.",
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: "Logout failed", error: error.message });
+  }
 };
 
 export const mapToUserDTO = (user: any) => {
   const userData = user.get ? user.get({ plain: true }) : user;
-  
+
   return {
     id: userData.id,
     name: userData.name,
     email: userData.email,
     role: userData.role?.name || userData.role, // Handle if it's an object or a string
-    status: userData.status
+    status: userData.status,
   };
 };

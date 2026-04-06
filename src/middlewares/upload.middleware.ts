@@ -1,7 +1,7 @@
 import multer from "multer";
 
 /**
- * We use memoryStorage because Cloudflare R2 (AWS SDK) 
+ * We use memoryStorage because Cloudflare R2 (AWS SDK)
  * needs the file as a 'buffer' (file.buffer).
  */
 const storage = multer.memoryStorage();
@@ -9,7 +9,7 @@ const storage = multer.memoryStorage();
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit (Adjust as needed for videos)
+    fileSize: 50 * 1024 * 1024, // 50MB limit for direct R2 uploads
   },
   fileFilter: (req, file, cb) => {
     // Basic validation to ensure we only get images and videos

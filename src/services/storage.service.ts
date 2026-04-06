@@ -1,4 +1,8 @@
-import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  DeleteObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import axios from "axios";
 
 export class StorageService {
@@ -29,20 +33,40 @@ export class StorageService {
 
   async uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
     try {
-      const base64Image = file.buffer.toString("base64");
+      // Check file size before attempting upload
+      const fileSizeMB = file.size / (1024 * 1024);
 
-      // We send BOTH the image and the folder to the Lambda
-      const response = await axios.post(this.lambdaUrl, {
-        image: base64Image,
-        folder: folder, // <--- Pass the folder name here
+      // 50MB limit for direct R2 uploads (no payload encoding overhead)
+      if (fileSizeMB > 50) {
+        throw new Error(
+          `File too large: ${fileSizeMB.toFixed(2)}MB. Maximum allowed is 50MB.`,
+        );
+      }
+
+      // Generate unique filename with timestamp
+      const timestamp = Date.now();
+      const fileKey = `${folder}/${timestamp}-${file.originalname}`;
+
+      // Upload directly to R2
+      const command = new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: fileKey,
+        Body: file.buffer,
+        ContentType: file.mimetype,
       });
 
-      return response.data.url;
+      await this.s3.send(command);
+
+      // Return the public URL
+      const publicUrl = `${process.env.R2_PUBLIC_URL}/${fileKey}`;
+      return publicUrl;
     } catch (error: any) {
-      console.error(
-        "Lambda Proxy Upload Error:",
-        error.response?.data || error.message,
-      );
+      console.error("R2 Direct Upload Error:", error.message);
+
+      if (error.message.includes("too large")) {
+        throw error;
+      }
+
       throw new Error(`Cloud Upload Failed: ${error.message}`);
     }
   }

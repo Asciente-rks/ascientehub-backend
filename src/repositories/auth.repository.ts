@@ -31,6 +31,23 @@ export class AuthRepository {
   }
 
   /**
+   * Login: Find user by username or email
+   */
+  async findByUsernameOrEmail(usernameOrEmail: string) {
+    return await User.findOne({
+      where: {
+        [Op.or]: [{ username: usernameOrEmail }, { email: usernameOrEmail }],
+      },
+      include: [
+        {
+          model: Role,
+          as: "Role",
+        },
+      ],
+    });
+  }
+
+  /**
    * Standardized Create method.
    * ADDED: options?: any to handle { transaction } from Service.
    */

@@ -64,4 +64,33 @@ export class UserService {
   async getPurchaseHistory(userId: string) {
     return await userRepo.getPurchaseHistory(userId);
   }
+
+  async updateProfile(
+    userId: string,
+    data: { username?: string; avatarUrl?: string },
+  ) {
+    const user = await userRepo.findById(userId);
+    if (!user) throw new Error("User not found");
+    return await userRepo.updateUser(userId, data);
+  }
+
+  async applyForDeveloper(userId: string) {
+    const user = await userRepo.findById(userId);
+    if (!user) throw new Error("User not found");
+
+    // Check if already developer or pending
+    if (user.status === "pending")
+      throw new Error("Application already pending");
+    if (user.status === "active" || user.status === "rejected") {
+      const now = new Date();
+      if (user.canReapplyAt && user.canReapplyAt > now) {
+        throw new Error("Cannot reapply yet. Try again after 30 days.");
+      }
+    }
+
+    return await userRepo.updateUser(userId, {
+      status: "pending",
+      rejectionReason: null,
+    });
+  }
 }

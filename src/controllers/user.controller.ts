@@ -66,3 +66,29 @@ export const getPurchaseHistory = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { username, avatarUrl } = req.body;
+    const updated = await userService.updateProfile(userId, {
+      username,
+      avatarUrl,
+    });
+    res.status(200).json({ message: "Profile updated", user: updated });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const applyForDeveloper = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const result = await userService.applyForDeveloper(userId);
+    res
+      .status(200)
+      .json({ message: "Developer application submitted", user: result });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
