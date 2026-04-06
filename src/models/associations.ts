@@ -9,6 +9,7 @@ import Cart from "./Cart";
 import Otp from "./Otp";
 import Subscription from "./Subscription";
 import GameMedia from "./GameMedia";
+import PaymentMethod from "./PaymentMethod";
 
 const setupAssociations = () => {
   // 1. Role & User
@@ -58,7 +59,11 @@ const setupAssociations = () => {
   User.hasOne(Subscription, { foreignKey: "developerId" });
   Subscription.belongsTo(User, { foreignKey: "developerId" });
 
-  // 9. OTP (Optional association, but good for cascading deletes)
+  // 9. Payment Methods
+  User.hasMany(PaymentMethod, { foreignKey: "userId" });
+  PaymentMethod.belongsTo(User, { foreignKey: "userId" });
+
+  // 10. OTP (Optional association, but good for cascading deletes)
   User.hasMany(Otp, { foreignKey: "email", sourceKey: "email" });
   Otp.belongsTo(User, { foreignKey: "email", targetKey: "email" });
 

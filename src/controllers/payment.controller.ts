@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { PaymentService } from "../services/payment.service";
 import { TransactionService } from "../services/transaction.service";
+import { PaymentMethodService } from "../services/paymentMethod.service";
 
 const paymentService = new PaymentService();
 const transactionService = new TransactionService();
+const paymentMethodService = new PaymentMethodService();
 
 export const createPaymentSource = async (req: Request, res: Response) => {
   try {
@@ -22,11 +24,21 @@ export const createPaymentSource = async (req: Request, res: Response) => {
       cvc,
     });
 
+    const savedMethod = await paymentMethodService.savePaymentMethod(
+      (req as any).user.id,
+      paymentMethod,
+    );
+
     res.status(200).json({
-      message: "Payment method created successfully",
+      message: "Payment method created and saved successfully",
       paymentMethod: {
         id: paymentMethod.id,
         type: paymentMethod.attributes.type,
+        brand: paymentMethod.attributes?.details?.brand || null,
+        last4: paymentMethod.attributes?.details?.last4 || null,
+        expMonth: paymentMethod.attributes?.details?.exp_month || null,
+        expYear: paymentMethod.attributes?.details?.exp_year || null,
+        savedId: savedMethod.id,
       },
     });
   } catch (error: any) {
@@ -39,9 +51,23 @@ export const createPayment = async (req: Request, res: Response) => {
     const userId = (req as any).user.id;
     const { gameId, paymentMethodId } = req.body;
 
-    if (!gameId || !paymentMethodId) {
+    if (!gameId) {
       return res.status(400).json({
-        message: "Game ID and payment method ID are required",
+        message: "Game ID is required",
+      });
+    }
+
+    let selectedPaymentMethodId = paymentMethodId;
+    if (!selectedPaymentMethodId) {
+      const savedMethods = await paymentMethodService.listPaymentMethods(userId);
+      const defaultMethod = savedMethods.find((method: any) => method.isDefault) || savedMethods[0];
+      selectedPaymentMethodId = defaultMethod?.paymongoId;
+    }
+
+    if (!selectedPaymentMethodId) {
+      return res.status(400).json({
+        message:
+          "Payment method ID is required. Either provide paymentMethodId or save a card first.",
       });
     }
 
@@ -103,6 +129,59 @@ export const createPayment = async (req: Request, res: Response) => {
         next_action: confirmedPayment.attributes.next_action,
       },
     });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const listPaymentMethods = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const methods = await paymentMethodService.listPaymentMethods(userId);
+
+    res.status(200).json({ paymentMethods: methods });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const deletePaymentMethod = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { methodId } = req.params;
+    const methodIdStr = Array.isArray(methodId) ? methodId[0] : methodId;
+
+    if (!methodIdStr) {
+      return res.status(400).json({ message: "Payment method ID is required" });
+    }
+
+    const deleted = await paymentMethodService.deletePaymentMethod(userId, methodIdStr);
+    if (!deleted) {
+      return res.status(404).json({ message: "Payment method not found" });
+    }
+
+    res.status(200).json({ message: "Payment method deleted successfully" });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const setDefaultPaymentMethod = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { methodId } = req.params;
+    const methodIdStr = Array.isArray(methodId) ? methodId[0] : methodId;
+
+    if (!methodIdStr) {
+      return res.status(400).json({ message: "Payment method ID is required" });
+    }
+
+    const success = await paymentMethodService.setDefaultPaymentMethod(userId, methodIdStr);
+    if (!success) {
+      return res.status(404).json({ message: "Payment method not found" });
+    }
+
+    res.status(200).json({ message: "Default payment method updated" });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
