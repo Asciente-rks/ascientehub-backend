@@ -8,39 +8,55 @@ const s3 = new S3Client({
     accessKeyId: process.env.R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
-  forcePathStyle: true,
+  forcePathStyle: true, // Crucial for Cloudflare R2
 });
 
 export const handler = async (event) => {
   try {
-    // For now, we'll assume the image is sent as a Base64 string in the body
+    // Parse the body sent from your Express Backend
     const body = JSON.parse(event.body);
+
+    if (!body.image) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: "No image data provided" }),
+      };
+    }
+
+    // Capture the folder from the request, or default to 'general'
+    const folder = body.folder || "uploads";
+    const fileName = `${folder}/upload-${Date.now()}.png`;
+
+    // CONVERT BASE64 STRING TO BUFFER (The part that was missing)
     const buffer = Buffer.from(body.image, "base64");
-    const fileName = `upload-${Date.now()}.png`;
 
     // 2. Prepare the upload command
     const uploadParams = {
       Bucket: process.env.R2_BUCKET_NAME,
-      Key: fileName, // The name the file will have in R2
+      Key: fileName,
       Body: buffer,
       ContentType: "image/png",
     };
 
-    // 3. Execute the upload
+    // 3. Execute the upload to Cloudflare
     await s3.send(new PutObjectCommand(uploadParams));
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         message: "Upload successful!",
+        // Return the full public URL so your Backend can save it to TiDB
         url: `${process.env.R2_ENDPOINT}/${process.env.R2_BUCKET_NAME}/${fileName}`,
       }),
     };
   } catch (error) {
-    console.error(error);
+    console.error("Lambda Error:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ message: "Upload failed", error: error.message }),
+      body: JSON.stringify({
+        message: "Upload failed",
+        error: error.message,
+      }),
     };
   }
 };
