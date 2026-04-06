@@ -40,6 +40,8 @@ const setupAssociations = () => {
     foreignKey: "gameId",
     as: "owners",
   });
+  Library.belongsTo(User, { foreignKey: "userId" });
+  Library.belongsTo(Game, { foreignKey: "gameId" });
 
   // 6. Cart (Users have many items in cart)
   User.hasMany(Cart, { foreignKey: "userId" });

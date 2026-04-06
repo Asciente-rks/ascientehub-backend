@@ -5,6 +5,8 @@ import {
   updatePassword,
   requestDeletion, // Ensure this matches the controller export name
   confirmDeletion,
+  getLibrary,
+  getPurchaseHistory,
 } from "../controllers/user.controller";
 
 const router = Router();
@@ -16,5 +18,7 @@ router.get("/profile", getProfile);
 router.put("/change-password", updatePassword);
 router.post("/request-deletion", requestDeletion); // Fixed naming
 router.delete("/confirm-deletion", confirmDeletion);
+router.get("/library", getLibrary);
+router.get("/purchase-history", getPurchaseHistory);
 
 export default router;

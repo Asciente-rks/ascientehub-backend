@@ -46,3 +46,23 @@ export const confirmDeletion = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const getLibrary = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const library = await userService.getLibrary(userId);
+    res.status(200).json(library);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getPurchaseHistory = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const history = await userService.getPurchaseHistory(userId);
+    res.status(200).json(history);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};

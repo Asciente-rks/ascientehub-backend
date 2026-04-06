@@ -57,4 +57,11 @@ export class UserService {
     await userRepo.deleteUser(userId);
     await otpRepo.delete(user.email, "account_deletion");
   }
+  async getLibrary(userId: string) {
+    return await userRepo.getLibrary(userId);
+  }
+
+  async getPurchaseHistory(userId: string) {
+    return await userRepo.getPurchaseHistory(userId);
+  }
 }

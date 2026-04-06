@@ -34,4 +34,22 @@ export class AdminService {
       canReapplyAt: cooldown,
     });
   }
+
+  async getUserPurchases(userId: string) {
+    return await adminRepo.getUserPurchases(userId);
+  }
+
+  async getPendingGames() {
+    return await adminRepo.getPendingGames();
+  }
+
+  async reviewGame(gameId: string, action: string, reason?: string) {
+    if (action === "approve") {
+      return await adminRepo.updateGameStatus(gameId, "approved");
+    } else if (action === "reject") {
+      return await adminRepo.updateGameStatus(gameId, "rejected", reason);
+    } else {
+      throw new Error("Invalid action");
+    }
+  }
 }

@@ -75,6 +75,73 @@ const runSeeder = async () => {
     console.log("📧 Email: ascientehub@gmail.com");
     console.log("🔑 Pass: AdminBaguio2026!");
 
+    // 5. Seed Test Accounts
+    console.log("👥 Seeding Test Accounts...");
+
+    const userRole = await Role.findOne({ where: { name: "User" } });
+    const developerRole = await Role.findOne({ where: { name: "Developer" } });
+
+    if (!userRole || !developerRole) throw new Error("Roles not found!");
+
+    const testPassword = await bcrypt.hash("Password123", 10);
+
+    // Buyer (User role)
+    await User.create({
+      username: "Buyer1",
+      email: "buyer1@example.com",
+      password: testPassword,
+      roleId: userRole.id,
+      isVerified: true,
+      isBanned: false,
+      status: "active",
+      provider: "local",
+    });
+
+    // Developer
+    const devUser = await User.create({
+      username: "Developer1",
+      email: "developer1@example.com",
+      password: testPassword,
+      roleId: developerRole.id,
+      isVerified: true,
+      isBanned: false,
+      status: "active",
+      provider: "local",
+    });
+
+    // Admin
+    await User.create({
+      username: "Admin1",
+      email: "admin1@example.com",
+      password: testPassword,
+      roleId: adminRole.id,
+      isVerified: true,
+      isBanned: false,
+      status: "active",
+      provider: "local",
+    });
+
+    // Seed a sample game for Developer1
+    const category = await Category.findOne();
+    if (category) {
+      await Game.create({
+        title: "Sample Game",
+        slug: "sample-game",
+        description: "A sample game for testing the store.",
+        basePrice: 9.99,
+        sizeInGb: 1.5,
+        developerId: devUser.id,
+        categoryId: category.id,
+        status: "approved",
+        thumbnailUrl: "https://example.com/thumbnail.jpg", // Placeholder
+      });
+    }
+
+    console.log("✅ Test accounts seeded:");
+    console.log("👤 Buyer1: buyer1@example.com / Password123");
+    console.log("🛠️ Developer1: developer1@example.com / Password123");
+    console.log("👑 Admin1: admin1@example.com / Password123");
+
     process.exit(0);
   } catch (error) {
     console.error("❌ Seeding failed:", error);

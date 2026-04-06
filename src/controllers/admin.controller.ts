@@ -52,3 +52,34 @@ export const reviewDevApplication = async (req: Request, res: Response) => {
     res.status(400).json({ message: error.message });
   }
 };
+export const getUserPurchases = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params as { userId: string };
+    const purchases = await adminService.getUserPurchases(userId);
+    res.status(200).json(purchases);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getPendingGames = async (req: Request, res: Response) => {
+  try {
+    const pendingGames = await adminService.getPendingGames();
+    res.status(200).json(pendingGames);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const reviewGame = async (req: Request, res: Response) => {
+  try {
+    const { gameId } = req.params as { gameId: string };
+    const { action, reason } = req.body;
+    const result = await adminService.reviewGame(gameId, action, reason);
+    res
+      .status(200)
+      .json({ message: `Game ${action}d successfully.`, data: result });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};

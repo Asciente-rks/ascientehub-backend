@@ -100,4 +100,16 @@ export class GameService {
       throw new Error(outerError.message);
     }
   }
+
+  async getGames(filters: {
+    category?: string;
+    sortBy?: string;
+    onSale?: boolean;
+  }) {
+    return await gameRepo.findGames(filters);
+  }
+
+  async getGameById(id: string) {
+    return await gameRepo.findGameById(id);
+  }
 }

@@ -1,6 +1,7 @@
 import User from "../models/User";
 import Role from "../models/Role";
 import Game from "../models/Game";
+import Transaction from "../models/Transaction";
 
 export class AdminRepository {
   /**
@@ -35,5 +36,26 @@ export class AdminRepository {
     return await User.update(updateData, {
       where: { id },
     });
+  }
+
+  async getUserPurchases(userId: string) {
+    return await Transaction.findAll({
+      where: { userId },
+      include: [{ model: Game }],
+      order: [["createdAt", "DESC"]],
+    });
+  }
+
+  async getPendingGames() {
+    return await Game.findAll({
+      where: { status: "pending" },
+      include: [{ model: User, as: "developer" }],
+    });
+  }
+
+  async updateGameStatus(gameId: string, status: string, reason?: string) {
+    const updateData: any = { status };
+    if (reason) updateData.rejectionReason = reason;
+    return await Game.update(updateData, { where: { id: gameId } });
   }
 }
