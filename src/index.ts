@@ -10,6 +10,7 @@ import reviewRoutes from "./routes/review.routes";
 import developerRoutes from "./routes/developer.routes";
 import publicRoutes from "./routes/public.routes";
 import adminRoutes from "./routes/admin.routes";
+import paymentRoutes from "./routes/payment.routes";
 
 const PORT = process.env.PORT || 5000;
 
@@ -21,6 +22,7 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/developer", developerRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/payments", paymentRoutes);
 
 const startServer = async () => {
   try {
