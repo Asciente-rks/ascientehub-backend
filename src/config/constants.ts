@@ -1,0 +1,5 @@
+export const ROLES = {
+  ADMIN: "ad60592d-9659-4592-a1f7-e24f7627449a",
+  DEVELOPER: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  USER: "550e8400-e29b-41d4-a716-446655440000",
+};

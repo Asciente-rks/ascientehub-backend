@@ -1,0 +1,85 @@
+import bcrypt from "bcrypt";
+import sequelizeConnection from "../config/db.config";
+import { seedRoles } from "../seeders/role.seeder";
+import { seedCategories } from "../seeders/category.seeder";
+
+// 1. Import all models
+import User from "../models/User";
+import Role from "../models/Role";
+import Category from "../models/Category";
+import Otp from "../models/Otp";
+import Game from "../models/Game";
+import Cart from "../models/Cart";
+import Library from "../models/Library";
+import Transaction from "../models/Transaction";
+import Subscription from "../models/Subscription";
+import Review from "../models/Review";
+
+const runSeeder = async () => {
+  try {
+    console.log("🔄 Connecting to TiDB...");
+    await sequelizeConnection.authenticate();
+
+    // Force models into scope
+    const models = [
+      User,
+      Role,
+      Category,
+      Otp,
+      Game,
+      Cart,
+      Library,
+      Transaction,
+      Subscription,
+      Review,
+    ];
+    console.log(`📚 Registered ${models.length} models for synchronization.`);
+
+    // Disable checks for a clean wipe
+    await sequelizeConnection.query("SET FOREIGN_KEY_CHECKS = 0");
+
+    // 2. Force Sync - Wipes TiDB and recreates everything
+    await sequelizeConnection.sync({ force: true });
+    console.log("🏗️ Database synced and all tables created.");
+
+    await sequelizeConnection.query("SET FOREIGN_KEY_CHECKS = 1");
+
+    // 3. Run existing seeders
+    console.log("🌱 Seeding Roles...");
+    await seedRoles();
+
+    console.log("🌱 Seeding Categories...");
+    await seedCategories();
+
+    // 4. NEW: Seed the Initial Superadmin
+    console.log("👤 Seeding Superadmin (Asciente Hub)...");
+
+    const adminRole = await Role.findOne({ where: { name: "Admin" } });
+    if (!adminRole)
+      throw new Error("Admin role not found after seeding roles!");
+
+    const hashedPassword = await bcrypt.hash("AdminBaguio2026!", 10);
+
+    await User.create({
+      username: "ascientehub",
+      email: "ascientehub@gmail.com", // Your verified contact
+      password: hashedPassword,
+      roleId: adminRole.id,
+      isVerified: true,
+      isBanned: false,
+      status: "active", // Admin is always active
+      provider: "local",
+    });
+
+    console.log("✨ All tables created and Superadmin seeded successfully!");
+    console.log("📧 Email: ascientehub@gmail.com");
+    console.log("🔑 Pass: AdminBaguio2026!");
+
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Seeding failed:", error);
+    process.exit(1);
+  }
+};
+
+runSeeder();
