@@ -21,7 +21,8 @@ const setupAssociations = () => {
   Game.belongsTo(Category, { foreignKey: "categoryId" });
 
   // 3. Game & Developer (User)
-  User.hasMany(Game, { foreignKey: "developerId", as: "uploads" });
+  // Change this
+  User.hasMany(Game, { foreignKey: "developerId", as: "developerGames" });
   Game.belongsTo(User, { foreignKey: "developerId", as: "developer" });
 
   // 4. Game & Reviews

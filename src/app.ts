@@ -1,10 +1,18 @@
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import authRoutes from "./routes/auth.routes";
+import userRoutes from "./routes/user.routes";
+import gameRoutes from "./routes/game.routes";
+import cartRoutes from "./routes/cart.routes";
+import reviewRoutes from "./routes/review.routes";
+import developerRoutes from "./routes/developer.routes";
+import publicRoutes from "./routes/public.routes";
+import adminRoutes from "./routes/admin.routes";
+import paymentRoutes from "./routes/payment.routes";
 
 // Load environment variables
 dotenv.config();
-
 const app: Application = express();
 
 // Middleware
@@ -21,6 +29,15 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/games", gameRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/developer", developerRoutes);
+app.use("/api/public", publicRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/payments", paymentRoutes);
 // Future Route Imports will go here
 // app.use('/api/v1/auth', authRoutes);
 

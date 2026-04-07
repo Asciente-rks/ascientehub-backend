@@ -1,17 +1,25 @@
-import { APIGatewayProxyEvent, Context, Callback } from "aws-lambda";
+import { APIGatewayProxyEvent, Context } from "aws-lambda";
 import serverlessExpress from "@vendia/serverless-express";
-import app from "./app";
+import app from "./app"; // IMPORT FROM APP
 import sequelizeConnection from "./config/db.config";
 import setupAssociations from "./models/associations";
 
-let cachedServer: ReturnType<typeof serverlessExpress> | null = null;
+let cachedServer: any = null;
 let isDbReady = false;
 
 const bootstrap = async () => {
   if (!isDbReady) {
-    await sequelizeConnection.authenticate();
-    setupAssociations();
-    isDbReady = true;
+    try {
+      await sequelizeConnection.authenticate();
+      setupAssociations();
+      // Only sync if you've made model changes, otherwise authenticate is enough
+      await sequelizeConnection.sync(); 
+      isDbReady = true;
+      console.log("Database connected and associations set.");
+    } catch (err) {
+      console.error("DB Bootstrap Error:", err);
+      throw err;
+    }
   }
 
   if (!cachedServer) {
@@ -21,14 +29,8 @@ const bootstrap = async () => {
   return cachedServer;
 };
 
-export const handler = async (
-  event: APIGatewayProxyEvent,
-  context: Context,
-  callback: Callback,
-) => {
+export const handler = async (event: APIGatewayProxyEvent, context: Context) => {
   context.callbackWaitsForEmptyEventLoop = false;
   const server = await bootstrap();
-  return server(event, context, callback);
+  return server(event, context); 
 };
-
-//Trigger CI/CD pipeline 3rd
