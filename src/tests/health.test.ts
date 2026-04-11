@@ -28,13 +28,16 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((resolve) => {
     server.close(() => {
-      // Close redis connection used by middleware to avoid open handles
-      try {
-        redis.disconnect();
-      } catch (err) {
-        // ignore
-      }
-      resolve();
+      (async () => {
+        try {
+          if (redis && typeof redis.disconnect === "function") {
+            await redis.disconnect();
+          }
+        } catch (err) {
+          // ignore
+        }
+        resolve();
+      })();
     });
   });
 });
