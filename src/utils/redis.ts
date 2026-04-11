@@ -2,12 +2,35 @@ import Redis from "ioredis";
 import "dotenv/config";
 import { EventEmitter } from "events";
 
+// Only create a real Redis client when running inside AWS Lambda
+// or when explicitly enabled via USE_REAL_REDIS=true.
 const useRealRedis = process.env.USE_REAL_REDIS === "true";
 const isTest = process.env.NODE_ENV === "test";
+const isLambda =
+  !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  !!process.env.LAMBDA_RUNTIME_API ||
+  !!process.env.LAMBDA_TASK_ROOT;
 
 let redis: any;
 
-if (isTest && !useRealRedis) {
+if (useRealRedis || isLambda) {
+  // Create a real Redis client for Lambda or when explicitly requested
+  redis = new Redis({
+    host: process.env.REDIS_HOST, // Redis host
+    port: parseInt(process.env.REDIS_PORT || "6379"), // Redis port
+    username: process.env.REDIS_USERNAME, // Redis username
+    password: process.env.REDIS_PASSWORD, // Redis password
+  });
+
+  redis.on("connect", () => {
+    console.log("Connected to Redis");
+  });
+
+  redis.on("error", (err: Error) => {
+    console.error("Redis connection error:", err);
+  });
+} else {
+  // Lightweight in-memory mock for local development and tests (default)
   class MockRedis extends EventEmitter {
     private store: Record<string, string> = {};
     private ttlMap: Record<string, number> = {};
@@ -63,21 +86,6 @@ if (isTest && !useRealRedis) {
   }
 
   redis = new MockRedis();
-} else {
-  redis = new Redis({
-    host: process.env.REDIS_HOST, // Redis host
-    port: parseInt(process.env.REDIS_PORT || "6379"), // Redis port
-    username: process.env.REDIS_USERNAME, // Redis username
-    password: process.env.REDIS_PASSWORD, // Redis password
-  });
-
-  redis.on("connect", () => {
-    console.log("Connected to Redis");
-  });
-
-  redis.on("error", (err: Error) => {
-    console.error("Redis connection error:", err);
-  });
 }
 
 export default redis;

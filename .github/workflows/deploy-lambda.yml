@@ -46,7 +46,7 @@ jobs:
 
       # Step 3: Install dependencies
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       # Step 4: Build the project (if needed)
       - name: Build the project
@@ -61,9 +61,15 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       # Step 6: Deploy to AWS Lambda
+      - name: Package Lambda (dist + node_modules)
+        run: |
+          # Ensure build artifacts exist
+          npm run build
+          # Create a small zip containing runtime files
+          zip -r function.zip dist node_modules package.json package-lock.json README.md || true
+
       - name: Deploy to AWS Lambda
         run: |
-          zip -r function.zip . # Package the Lambda function
           aws lambda update-function-code \
             --function-name ascientehub-backend \
             --zip-file fileb://function.zip
