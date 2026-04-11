@@ -99,48 +99,66 @@ export const handler = async (event: LambdaEvent, context: Context) => {
   // Initialize database (cold start optimization)
   await initializeDatabase();
 
-  // Skip caching for login endpoint
-  const path = event.rawPath; // Use rawPath for the endpoint path
-  const method = event.requestContext?.http?.method; // Use requestContext.http.method for the HTTP method
+  // Ensure server is bootstrapped
+  const server = await bootstrap();
 
+  // Determine request path and method (support APIGW v2)
+  const path = event.rawPath || (event as any).path || "/";
+  const method =
+    (event.requestContext &&
+      (event.requestContext as any).http &&
+      (event.requestContext as any).http.method) ||
+    (event as any).httpMethod ||
+    "GET";
+
+  // Bypass cache for login endpoint (POST)
   if (path === "/api/auth/login" && method === "POST") {
-    console.log(
-      "[DEBUG] Handling /api/auth/login endpoint. Cache bypass logic triggered.",
-    );
+    console.log("[DEBUG] Handling /api/auth/login endpoint. Cache bypass.");
     const response = await handleLogin(event);
     console.log("[DEBUG] Response from handleLogin:", response);
-    return response; // Ensure the response is properly returned
+    return response;
   }
 
-  // Generate a unique cache key
-  const cacheKey = `${method}_${path}`;
-  let cachedData: any = null;
+  // Build a cache key that includes query string
+  const query = (event as any).rawQueryString || "";
+  const cacheKey = `${method}_${path}_${query}`;
 
-  console.log("[DEBUG] Full Event:", JSON.stringify(event, null, 2));
-  console.log("[DEBUG] Event Path:", path);
-  console.log("[DEBUG] Event HTTP Method:", method);
-
-  try {
-    const cachedValue = await redis.get(cacheKey);
-    if (cachedValue) {
-      console.log("Cache hit, returning cached data...");
-      cachedData = JSON.parse(cachedValue as string);
-    } else {
-      console.log("Cache miss, processing request...");
-      // Simulate a database query or other processing
-      cachedData = { message: "Hello from the database!" };
-      await redis.set(cacheKey, JSON.stringify(cachedData), "EX", 3600);
+  // Only cache GET responses
+  if (method === "GET") {
+    try {
+      const cachedValue = await redis.get(cacheKey);
+      if (cachedValue) {
+        console.log("Cache hit, returning cached response...");
+        const parsed =
+          typeof cachedValue === "string"
+            ? JSON.parse(cachedValue)
+            : cachedValue;
+        return parsed;
+      }
+    } catch (err) {
+      console.warn("Cache get failed (non-fatal):", err);
     }
-  } catch (err) {
-    console.warn("Cache operation failed (non-fatal):", err);
-    cachedData = { message: "Hello from the database!" };
   }
 
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      message: "Lambda function executed successfully!",
-      cachedData,
-    }),
-  };
+  // No cached response — forward the request to the Express app via serverless-express
+  try {
+    const result = await server(event as any, context as any);
+
+    // Cache successful GET responses
+    if (method === "GET" && result && result.statusCode === 200) {
+      try {
+        await redis.set(cacheKey, JSON.stringify(result), "EX", 3600);
+      } catch (err) {
+        console.warn("Cache set failed (non-fatal):", err);
+      }
+    }
+
+    return result;
+  } catch (err) {
+    console.error("Server handler error:", err);
+    return {
+      statusCode: 502,
+      body: JSON.stringify({ message: "Internal server error" }),
+    };
+  }
 };

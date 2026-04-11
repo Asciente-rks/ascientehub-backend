@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import sequelizeConnection from "../config/db.config";
 import { seedRoles } from "../seeders/role.seeder";
 import { seedCategories } from "../seeders/category.seeder";
+import { seedProductionUsers } from "../seeders/production-user.seeder";
 
 // 1. Import all models
 import User from "../models/User";
@@ -20,7 +21,24 @@ const runSeeder = async () => {
     console.log("🔄 Connecting to TiDB...");
     await sequelizeConnection.authenticate();
 
-    // Force models into scope
+    // In production, avoid destructive sync. Run idempotent seeders only.
+    if ((process.env.NODE_ENV || "development") === "production") {
+      console.log("🔒 Running production-safe seed (no sync)...");
+
+      console.log("🌱 Seeding Roles...");
+      await seedRoles();
+
+      console.log("🌱 Seeding Categories...");
+      await seedCategories();
+
+      console.log("👥 Seeding production users...");
+      await seedProductionUsers();
+
+      console.log("✨ Production seeding complete.");
+      process.exit(0);
+    }
+
+    // Force models into scope for development/test flows
     const models = [
       User,
       Role,
@@ -44,7 +62,7 @@ const runSeeder = async () => {
 
     await sequelizeConnection.query("SET FOREIGN_KEY_CHECKS = 1");
 
-    // 3. Run existing seeders
+    // 3. Run existing seeders in development/test
     console.log("🌱 Seeding Roles...");
     await seedRoles();
 
