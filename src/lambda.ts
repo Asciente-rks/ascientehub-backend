@@ -95,7 +95,9 @@ export const handler = async (event: LambdaEvent, context: Context) => {
     console.log(
       "[DEBUG] Handling /api/auth/login endpoint. Cache bypass logic triggered.",
     );
-    return await handleLogin(event); // Directly handle login without caching
+    const response = await handleLogin(event);
+    console.log("[DEBUG] Response from handleLogin:", response);
+    return response; // Ensure the response is properly returned
   }
 
   // Generate a unique cache key
