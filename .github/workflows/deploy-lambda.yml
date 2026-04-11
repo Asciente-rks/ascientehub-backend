@@ -43,3 +43,5 @@ jobs:
           aws lambda update-function-code \
             --function-name ascientehub-backend \
             --zip-file fileb://function.zip
+
+#CI/CD trigger
