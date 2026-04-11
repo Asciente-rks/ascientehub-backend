@@ -12,8 +12,10 @@ import publicRoutes from "./routes/public.routes";
 import adminRoutes from "./routes/admin.routes";
 import paymentRoutes from "./routes/payment.routes";
 
-// Load environment variables
-dotenv.config();
+// Dynamically load the correct .env file based on NODE_ENV
+const envFile = `.env.${process.env.NODE_ENV || "development"}`;
+dotenv.config({ path: envFile });
+
 const app: Application = express();
 
 // Middleware

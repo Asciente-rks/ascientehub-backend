@@ -1,8 +1,9 @@
 import { Sequelize } from "sequelize";
 import dotenv from "dotenv";
 
-// Ensure environment variables are loaded
-dotenv.config();
+// Dynamically load the correct .env file based on NODE_ENV
+const envFile = `.env.${process.env.NODE_ENV || "development"}`;
+dotenv.config({ path: envFile });
 
 const dbName = process.env.DB_NAME as string;
 const dbUser = process.env.DB_USER as string;
