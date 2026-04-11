@@ -44,4 +44,4 @@ jobs:
             --function-name ascientehub-backend \
             --zip-file fileb://function.zip
 
-#CI/CD trigger
+#CI/CD trigger 2
