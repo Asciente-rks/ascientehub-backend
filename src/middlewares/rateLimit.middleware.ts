@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import redis from "../utils/redis";
+import redis from "../utils/caching";
 
 export interface RateLimitOptions {
   windowSeconds?: number;
@@ -35,46 +35,30 @@ export default function rateLimit(options?: Partial<RateLimitOptions>) {
       let current: number;
       let ttl: number = -1;
 
-      // Use Redis when available and supports incr
-      if (redis && typeof redis.incr === "function") {
-        current = await redis.incr(key);
-        if (current === 1 && typeof redis.expire === "function") {
-          await redis.expire(key, opts.windowSeconds);
-        }
-        if (typeof redis.ttl === "function") {
-          ttl = await redis.ttl(key);
-        }
+      // Use Redis-like in-memory cache
+      const now = Math.floor(Date.now() / 1000);
+      const entry = localCounters.get(key) || { count: 0, expiresAt: null };
+      if (!entry.expiresAt || entry.expiresAt <= now) {
+        entry.count = 1;
+        entry.expiresAt = now + opts.windowSeconds;
       } else {
-        // Local in-memory fallback (per-process)
-        const now = Math.floor(Date.now() / 1000);
-        const entry = localCounters.get(key) || { count: 0, expiresAt: null };
-        if (!entry.expiresAt || entry.expiresAt <= now) {
-          entry.count = 1;
-          entry.expiresAt = now + opts.windowSeconds;
-        } else {
-          entry.count += 1;
-        }
-        localCounters.set(key, entry);
-        current = entry.count;
-        ttl = Math.max(0, (entry.expiresAt || now) - now);
+        entry.count += 1;
       }
-
-      const remaining = Math.max(0, opts.maxRequests - current);
-
-      res.setHeader("X-RateLimit-Limit", String(opts.maxRequests));
-      res.setHeader("X-RateLimit-Remaining", String(remaining));
-      res.setHeader("X-RateLimit-Reset", String(ttl));
+      localCounters.set(key, entry);
+      current = entry.count;
+      ttl = Math.max(0, (entry.expiresAt || now) - now);
 
       if (current > opts.maxRequests) {
-        res.setHeader("Retry-After", String(ttl));
-        return res.status(429).json({ message: "Too Many Requests" });
+        res.setHeader("Retry-After", ttl);
+        return res.status(429).json({
+          message: "Too many requests, please try again later.",
+        });
       }
 
-      return next();
+      next();
     } catch (err) {
-      // Fail-open: don't block requests if rate limiter errors
-      console.error("Rate limiter error:", err);
-      return next();
+      console.error("Rate limit middleware error:", err);
+      next();
     }
   };
 }

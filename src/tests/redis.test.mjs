@@ -1,4 +1,4 @@
-const redis = require("../utils/redis").default;
+const redis = require("../utils/caching").default;
 
 const shouldRunRedisTests = process.env.USE_REAL_REDIS === "true";
 
