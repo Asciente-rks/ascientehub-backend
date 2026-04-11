@@ -1,6 +1,7 @@
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import rateLimit from "./middlewares/rateLimit.middleware";
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
 import gameRoutes from "./routes/game.routes";
@@ -19,6 +20,9 @@ const app: Application = express();
 app.use(cors());
 app.use(express.json()); // Parses incoming JSON requests
 app.use(express.urlencoded({ extended: true }));
+
+// Apply rate limiting globally (uses Redis)
+app.use(rateLimit());
 
 // Health Check Route
 app.get("/", (req: Request, res: Response) => {

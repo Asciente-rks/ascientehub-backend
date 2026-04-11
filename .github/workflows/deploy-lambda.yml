@@ -6,8 +6,32 @@ on:
       - main # Trigger deployment on push to the main branch
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Run tests
+        run: npm test
+        env:
+          CI: true
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Force Node.js 24 for actions
 
     steps:
       # Step 1: Checkout the code
@@ -43,5 +67,3 @@ jobs:
           aws lambda update-function-code \
             --function-name ascientehub-backend \
             --zip-file fileb://function.zip
-
-#CI/CD trigger 2
