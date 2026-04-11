@@ -6,6 +6,7 @@ import setupAssociations from "./models/associations";
 import redis from "./utils/caching"; // Import Redis utility
 import { login } from "./controllers/auth.controller"; // Import login logic
 import { Request, Response } from "express"; // Import Express types
+import { APIGatewayProxyEventV2 } from "aws-lambda"; // Use the correct type for HTTP API Gateway
 
 let cachedServer: any = null;
 let isDbReady = false;
@@ -49,8 +50,10 @@ const bootstrap = async () => {
   return cachedServer;
 };
 
-// Wrapper for login function to adapt to Lambda context
-const handleLogin = async (event: APIGatewayProxyEvent) => {
+// Update the Lambda handler and handleLogin function to use APIGatewayProxyEventV2
+type LambdaEvent = APIGatewayProxyEventV2;
+
+const handleLogin = async (event: LambdaEvent) => {
   const req = {
     body: JSON.parse(event.body || "{}"),
   } as Request;
@@ -78,24 +81,30 @@ const handleLogin = async (event: APIGatewayProxyEvent) => {
 };
 
 // Lambda handler
-export const handler = async (
-  event: APIGatewayProxyEvent,
-  context: Context,
-) => {
+export const handler = async (event: LambdaEvent, context: Context) => {
   context.callbackWaitsForEmptyEventLoop = false;
 
   // Initialize database (cold start optimization)
   await initializeDatabase();
 
   // Skip caching for login endpoint
-  if (event.path === "/auth/login" && event.httpMethod === "POST") {
-    console.log("Handling login endpoint without caching.");
+  const path = event.rawPath; // Use rawPath for the endpoint path
+  const method = event.requestContext?.http?.method; // Use requestContext.http.method for the HTTP method
+
+  if (path === "/api/auth/login" && method === "POST") {
+    console.log(
+      "[DEBUG] Handling /api/auth/login endpoint. Cache bypass logic triggered.",
+    );
     return await handleLogin(event); // Directly handle login without caching
   }
 
   // Generate a unique cache key
-  const cacheKey = `${event.httpMethod}_${event.path}`;
+  const cacheKey = `${method}_${path}`;
   let cachedData: any = null;
+
+  console.log("[DEBUG] Full Event:", JSON.stringify(event, null, 2));
+  console.log("[DEBUG] Event Path:", path);
+  console.log("[DEBUG] Event HTTP Method:", method);
 
   try {
     const cachedValue = await redis.get(cacheKey);
