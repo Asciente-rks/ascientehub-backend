@@ -95,7 +95,7 @@ export class AuthService {
     if (!usernameOrEmail || !pass) {
       throw new Error("Username/email and password are required.");
     }
-    
+
     const user = (await authRepo.findByUsernameOrEmail(usernameOrEmail)) as any;
     if (!user || !user.password)
       throw new Error("Invalid username/email or password.");
@@ -120,6 +120,9 @@ export class AuthService {
       process.env.JWT_SECRET as string,
       { expiresIn: "1d" },
     );
+
+    console.log("[DEBUG] Retrieved User:", user);
+    console.log("[DEBUG] Generated Token:", token);
 
     return { user, token };
   }

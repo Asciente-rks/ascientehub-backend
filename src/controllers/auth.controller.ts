@@ -60,6 +60,9 @@ export const login = async (req: Request, res: Response) => {
     const usernameOrEmail = username || email;
     const { user, token } = await authService.login(usernameOrEmail, password);
 
+    console.log("[DEBUG] User before DTO mapping:", user);
+    console.log("[DEBUG] User DTO:", mapToUserDTO(user));
+
     res.status(200).json({
       message: "Login successful!",
       token,
@@ -100,13 +103,14 @@ export const logout = async (req: Request, res: Response) => {
     // For JWT, logout is primarily client-side (clear tokens)
     // But we can add server-side logic if needed (e.g., token blacklisting)
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
       // Here you could implement token blacklisting if you add that feature
       // For now, just return success
     }
 
     res.status(200).json({
-      message: "Logged out successfully. Please clear your tokens on the client side.",
+      message:
+        "Logged out successfully. Please clear your tokens on the client side.",
     });
   } catch (error: any) {
     res.status(500).json({ message: "Logout failed", error: error.message });
