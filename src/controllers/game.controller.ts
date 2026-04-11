@@ -14,16 +14,20 @@ export const createGame = async (req: Request, res: Response) => {
       | { [fieldname: string]: Express.Multer.File[] }
       | undefined;
 
-    const thumbnail = files?.thumbnail ? files.thumbnail[0] : null;
-    const trailer = files?.trailer ? files.trailer[0] : null;
+    const thumbnailFile = files?.thumbnail ? files.thumbnail[0] : undefined;
+    const trailerFile = files?.trailer ? files.trailer[0] : undefined;
 
-    if (!thumbnail) {
+    // Support presigned upload flow: client may provide `thumbnailUrl` instead of a file
+    const body = req.body as any;
+    const hasThumbnailUrl = Boolean(body.thumbnailUrl || body.thumbnailKey);
+
+    if (!thumbnailFile && !hasThumbnailUrl) {
       return res.status(400).json({ message: "Thumbnail is required." });
     }
 
-    const game = await gameService.createGame(req.body, developerId, {
-      thumbnail,
-      trailer: trailer || undefined,
+    const game = await gameService.createGame(body, developerId, {
+      thumbnail: thumbnailFile,
+      trailer: trailerFile,
     });
 
     res.status(201).json({

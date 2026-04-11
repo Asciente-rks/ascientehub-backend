@@ -11,10 +11,19 @@ import developerRoutes from "./routes/developer.routes";
 import publicRoutes from "./routes/public.routes";
 import adminRoutes from "./routes/admin.routes";
 import paymentRoutes from "./routes/payment.routes";
+import uploadRoutes from "./routes/upload.routes";
 
 // Dynamically load the correct .env file based on NODE_ENV
 const envFile = `.env.${process.env.NODE_ENV || "development"}`;
 dotenv.config({ path: envFile });
+
+// Quick non-sensitive check for important storage envs (helpful during local dev)
+const r2Configured = Boolean(
+  process.env.R2_BUCKET_NAME ||
+  process.env.R2_BUCKET ||
+  process.env.BUCKET_NAME,
+);
+console.log(`R2 configured: ${r2Configured}`);
 
 const app: Application = express();
 
@@ -44,6 +53,7 @@ app.use("/api/developer", developerRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/uploads", uploadRoutes);
 // Future Route Imports will go here
 // app.use('/api/v1/auth', authRoutes);
 

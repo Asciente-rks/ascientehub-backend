@@ -11,7 +11,12 @@ export class StorageService {
   private lambdaUrl: string;
 
   constructor() {
-    this.bucketName = process.env.R2_BUCKET_NAME || "";
+    // Accept multiple common env names as fallbacks to be flexible
+    this.bucketName =
+      process.env.R2_BUCKET_NAME ||
+      process.env.R2_BUCKET ||
+      process.env.BUCKET_NAME ||
+      "";
     this.lambdaUrl = process.env.LAMBDA_UPLOAD_URL || ""; // Ensure this is in your .env
 
     // We keep the S3 client ONLY for deleteFile or admin tasks
@@ -33,6 +38,11 @@ export class StorageService {
 
   async uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
     try {
+      if (!this.bucketName) {
+        throw new Error(
+          "R2_BUCKET_NAME is not set. Please set R2_BUCKET_NAME in your environment (.env.development or .env.production).",
+        );
+      }
       // Check file size before attempting upload
       const fileSizeMB = file.size / (1024 * 1024);
 

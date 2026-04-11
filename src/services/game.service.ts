@@ -11,7 +11,10 @@ export class GameService {
   async createGame(
     data: any,
     developerId: string,
-    files: { thumbnail: Express.Multer.File; trailer?: Express.Multer.File },
+    files: {
+      thumbnail?: Express.Multer.File;
+      trailer?: Express.Multer.File;
+    } = {},
     options?: any,
   ): Promise<Game> {
     const { title, description, price, categoryId, sizeInGb } = data;
@@ -43,19 +46,35 @@ export class GameService {
     // --- UPLOAD TRACKING FOR CLEANUP ---
     let thumbnailPath: string | null = null;
     let trailerPath: string | null = null;
-
+    let uploadedThumbnail = false;
+    let uploadedTrailer = false;
     try {
-      // 3. Upload to Cloudflare R2
-      thumbnailPath = await storageService.uploadFile(
-        files.thumbnail,
-        "thumbnails",
-      );
+      // 3. Upload to Cloudflare R2 OR use presigned URL provided by client
+      // If caller provided `thumbnailUrl` or `thumbnailKey`, use it instead of uploading
+      if (data.thumbnailUrl) {
+        thumbnailPath = storageService.getFileUrl(data.thumbnailUrl);
+      } else if (data.thumbnailKey) {
+        thumbnailPath = storageService.getFileUrl(data.thumbnailKey);
+      } else if (files.thumbnail) {
+        thumbnailPath = await storageService.uploadFile(
+          files.thumbnail,
+          "thumbnails",
+        );
+        uploadedThumbnail = true;
+      } else {
+        throw new Error("Thumbnail not provided");
+      }
 
-      if (files.trailer) {
+      if (data.trailerUrl) {
+        trailerPath = storageService.getFileUrl(data.trailerUrl);
+      } else if (data.trailerKey) {
+        trailerPath = storageService.getFileUrl(data.trailerKey);
+      } else if (files.trailer) {
         trailerPath = await storageService.uploadFile(
           files.trailer,
           "trailers",
         );
+        uploadedTrailer = true;
       }
 
       /**
@@ -87,11 +106,12 @@ export class GameService {
       } catch (error: any) {
         // Rollback DB transaction
         if (!isExternalTransaction && transaction) await transaction.rollback();
-
         // --- 5. R2 CLEANUP (THE FIX) ---
-        // If the DB save fails, delete the files we just uploaded to avoid duplicates/waste
-        if (thumbnailPath) await storageService.deleteFile(thumbnailPath);
-        if (trailerPath) await storageService.deleteFile(trailerPath);
+        // If the DB save fails, delete only files we uploaded in this request
+        if (uploadedThumbnail && thumbnailPath)
+          await storageService.deleteFile(thumbnailPath);
+        if (uploadedTrailer && trailerPath)
+          await storageService.deleteFile(trailerPath);
 
         throw new Error(`Game creation failed: ${error.message}`);
       }
