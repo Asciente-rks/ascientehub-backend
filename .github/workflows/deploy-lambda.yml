@@ -61,12 +61,17 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       # Step 6: Deploy to AWS Lambda
-      - name: Package Lambda (dist + node_modules)
+      - name: Package Lambda (put dist contents at ZIP root)
         run: |
           # Ensure build artifacts exist
           npm run build
-          # Create a small zip containing runtime files
-          zip -r function.zip dist node_modules package.json package-lock.json README.md || true
+          rm -f function.zip || true
+          # Pack dist contents at the zip root so handler 'lambda.handler' resolves to compiled lambda.js
+          cd dist
+          zip -r ../function.zip . || true
+          cd ..
+          # Add node_modules and package files
+          zip -r function.zip node_modules package.json package-lock.json README.md || true
 
       - name: Deploy to AWS Lambda
         run: |
