@@ -4,6 +4,8 @@ import app from "./app"; // IMPORT FROM APP
 import sequelizeConnection from "./config/db.config";
 import setupAssociations from "./models/associations";
 import redis from "./utils/caching"; // Import Redis utility
+import { login } from "./controllers/auth.controller"; // Import login logic
+import { Request, Response } from "express"; // Import Express types
 
 let cachedServer: any = null;
 let isDbReady = false;
@@ -47,6 +49,34 @@ const bootstrap = async () => {
   return cachedServer;
 };
 
+// Wrapper for login function to adapt to Lambda context
+const handleLogin = async (event: APIGatewayProxyEvent) => {
+  const req = {
+    body: JSON.parse(event.body || "{}"),
+  } as Request;
+
+  const res = {
+    status: (statusCode: number) => {
+      return {
+        json: (body: any) => ({
+          statusCode,
+          body: JSON.stringify(body),
+        }),
+      };
+    },
+    send: (body: any) => ({
+      statusCode: 200,
+      body: JSON.stringify(body),
+    }),
+    json: (body: any) => ({
+      statusCode: 200,
+      body: JSON.stringify(body),
+    }),
+  } as unknown as Response;
+
+  return login(req, res);
+};
+
 // Lambda handler
 export const handler = async (
   event: APIGatewayProxyEvent,
@@ -57,52 +87,37 @@ export const handler = async (
   // Initialize database (cold start optimization)
   await initializeDatabase();
 
-  // Example: Use in-memory cache for caching
-  const cacheKey = "example_key";
-  let cachedData: { message: string } | null = null;
-  // Best-effort caching: Failures must not break the Lambda handler
+  // Skip caching for login endpoint
+  if (event.path === "/login" && event.httpMethod === "POST") {
+    console.log("Skipping cache for login endpoint.");
+    return handleLogin(event);
+  }
+
+  // Generate a unique cache key
+  const cacheKey = `${event.httpMethod}_${event.path}`;
+  let cachedData: any = null;
+
   try {
     const cachedValue = await redis.get(cacheKey);
     if (cachedValue) {
       console.log("Cache hit, returning cached data...");
-      try {
-        cachedData = JSON.parse(cachedValue as string);
-      } catch (err) {
-        console.warn("Failed to parse cached JSON:", err);
-      }
+      cachedData = JSON.parse(cachedValue as string);
     } else {
-      console.log("Cache miss, querying database...");
-      // Simulate a database query
+      console.log("Cache miss, processing request...");
+      // Simulate a database query or other processing
       cachedData = { message: "Hello from the database!" };
-      try {
-        await redis.set(cacheKey, JSON.stringify(cachedData), "EX", 3600);
-      } catch (err) {
-        console.warn("Cache set failed (non-fatal):", err);
-      }
+      await redis.set(cacheKey, JSON.stringify(cachedData), "EX", 3600);
     }
   } catch (err) {
     console.warn("Cache operation failed (non-fatal):", err);
     cachedData = { message: "Hello from the database!" };
   }
 
-  // Event-specific caching
-  const eventKey = `event_${event.requestContext.requestId}`;
-  const cachedEventResponse = await redis.get(eventKey);
-
-  if (cachedEventResponse) {
-    console.log("Returning cached response for event...");
-    return JSON.parse(cachedEventResponse as string);
-  }
-
-  // Process the event and cache the response
-  const response = {
+  return {
     statusCode: 200,
     body: JSON.stringify({
       message: "Lambda function executed successfully!",
       cachedData,
     }),
   };
-  await redis.set(eventKey, JSON.stringify(response), "EX", 300); // Cache for 5 minutes
-
-  return response;
 };
