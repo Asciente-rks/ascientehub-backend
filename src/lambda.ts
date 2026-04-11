@@ -58,26 +58,38 @@ const handleLogin = async (event: LambdaEvent) => {
     body: JSON.parse(event.body || "{}"),
   } as Request;
 
+  let response: any;
+
   const res = {
     status: (statusCode: number) => {
       return {
-        json: (body: any) => ({
-          statusCode,
-          body: JSON.stringify(body),
-        }),
+        json: (body: any) => {
+          response = {
+            statusCode,
+            body: JSON.stringify(body),
+          };
+          return response;
+        },
       };
     },
-    send: (body: any) => ({
-      statusCode: 200,
-      body: JSON.stringify(body),
-    }),
-    json: (body: any) => ({
-      statusCode: 200,
-      body: JSON.stringify(body),
-    }),
+    send: (body: any) => {
+      response = {
+        statusCode: 200,
+        body: JSON.stringify(body),
+      };
+      return response;
+    },
+    json: (body: any) => {
+      response = {
+        statusCode: 200,
+        body: JSON.stringify(body),
+      };
+      return response;
+    },
   } as unknown as Response;
 
-  return login(req, res);
+  await login(req, res);
+  return response; // Ensure the response is returned
 };
 
 // Lambda handler
