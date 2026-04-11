@@ -90,7 +90,7 @@ export const handler = async (
   // Skip caching for login endpoint
   if (event.path === "/login" && event.httpMethod === "POST") {
     console.log("Skipping cache for login endpoint.");
-    return handleLogin(event);
+    return await handleLogin(event); // Directly handle login without caching
   }
 
   // Generate a unique cache key
