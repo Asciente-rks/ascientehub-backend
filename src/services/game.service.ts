@@ -17,7 +17,15 @@ export class GameService {
     } = {},
     options?: any,
   ): Promise<Game> {
-    const { title, description, price, categoryId, sizeInGb } = data;
+    const {
+      title,
+      description,
+      price,
+      categoryId,
+      sizeInGb,
+      installerUrl,
+      installerKey,
+    } = data;
 
     // 1. Monthly Upload Limit Check
     const startOfMonth = new Date();
@@ -77,6 +85,13 @@ export class GameService {
         uploadedTrailer = true;
       }
 
+      let installerPath: string | null = null;
+      if (installerUrl) {
+        installerPath = storageService.getFileUrl(installerUrl);
+      } else if (installerKey) {
+        installerPath = storageService.getFileUrl(installerKey);
+      }
+
       /**
        * 4. Transaction Logic
        */
@@ -92,6 +107,7 @@ export class GameService {
             basePrice: price,
             sizeInGb,
             thumbnailUrl: thumbnailPath,
+            installerUrl: installerPath || null,
             videoUrl: trailerPath || "", // Ensure it's at least an empty string if null
             developerId,
             categoryId,

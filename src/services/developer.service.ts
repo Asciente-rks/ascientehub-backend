@@ -34,6 +34,8 @@ export class DeveloperService {
       trailerUrl,
       trailerKey,
       videoUrl,
+      installerUrl,
+      installerKey,
       sizeInGb,
     } = updateData;
 
@@ -83,6 +85,12 @@ export class DeveloperService {
         updates.videoUrl = storageService.getFileUrl(videoUrl);
       } else if (trailerKey) {
         updates.videoUrl = storageService.getFileUrl(trailerKey);
+      }
+
+      if (installerUrl) {
+        updates.installerUrl = storageService.getFileUrl(installerUrl);
+      } else if (installerKey) {
+        updates.installerUrl = storageService.getFileUrl(installerKey);
       }
 
       await (game as any).update(updates);

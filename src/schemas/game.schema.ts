@@ -10,5 +10,7 @@ export const createGameSchema = yup.object({
       .min(0, "Price cannot be negative"),
     categoryId: yup.string().uuid().required("Category is required"),
     sizeInGb: yup.number().optional(),
+    installerUrl: yup.string().optional(),
+    installerKey: yup.string().optional(),
   }),
 });

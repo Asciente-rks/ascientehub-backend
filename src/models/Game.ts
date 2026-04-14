@@ -16,6 +16,7 @@ interface GameAttributes {
   status: "pending" | "approved" | "rejected";
   rejectionReason?: string;
   thumbnailUrl: string;
+  installerUrl?: string;
   createdAt?: Date;
   updatedAt?: Date;
   videoUrl?: string;
@@ -30,6 +31,7 @@ export interface GameInput extends Optional<
   | "salePrice"
   | "saleEndsAt"
   | "rejectionReason"
+  | "installerUrl"
 > {}
 
 class Game extends Model<GameAttributes, GameInput> implements GameAttributes {
@@ -47,6 +49,7 @@ class Game extends Model<GameAttributes, GameInput> implements GameAttributes {
   declare status: "pending" | "approved" | "rejected";
   declare rejectionReason: string;
   declare thumbnailUrl: string;
+  declare installerUrl: string;
   declare videoUrl: string;
 
   // Timestamps
@@ -113,6 +116,10 @@ Game.init(
     thumbnailUrl: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+    installerUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     videoUrl: {
       type: DataTypes.STRING,

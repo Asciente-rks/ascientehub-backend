@@ -5,6 +5,13 @@ import {
 } from "@aws-sdk/client-s3";
 import axios from "axios";
 
+type UploadFile = {
+  size: number;
+  originalname: string;
+  buffer: Buffer;
+  mimetype: string;
+};
+
 export class StorageService {
   private s3: S3Client;
   private bucketName: string;
@@ -36,7 +43,7 @@ export class StorageService {
    */
   // Inside StorageService class in storage.service.ts
 
-  async uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
+  async uploadFile(file: UploadFile, folder: string): Promise<string> {
     try {
       if (!this.bucketName) {
         throw new Error(
