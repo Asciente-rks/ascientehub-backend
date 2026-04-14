@@ -136,13 +136,18 @@ export class PaymentService {
 
       return response.data.data;
     } catch (error: any) {
+      const paymongoError = error.response?.data?.errors?.[0];
       console.error(
         "PayMongo Attach Error:",
         error.response?.data || error.message,
       );
-      throw new Error(
-        `Payment confirmation failed: ${error.response?.data?.errors?.[0]?.detail || error.message}`,
+      const wrappedError: any = new Error(
+        `Payment confirmation failed: ${paymongoError?.detail || error.message}`,
       );
+      wrappedError.code = paymongoError?.code;
+      wrappedError.detail = paymongoError?.detail;
+      wrappedError.raw = error.response?.data;
+      throw wrappedError;
     }
   }
 

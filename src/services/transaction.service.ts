@@ -41,6 +41,50 @@ export class TransactionService {
     return transaction;
   }
 
+  /**
+   * Create multiple transactions at once (for cart checkout)
+   * Each game gets its own transaction, but they share the same payment ID
+   */
+  async createBulkTransactions(
+    userId: string,
+    gameIds: string[],
+    paymentId: string,
+  ) {
+    const transactions = [];
+
+    for (const gameId of gameIds) {
+      const game = await this.getGameForPurchase(gameId);
+      if (!game) {
+        throw new Error(`Game not found: ${gameId}`);
+      }
+
+      const alreadyOwns = await this.checkGameOwnership(userId, gameId);
+      if (alreadyOwns) {
+        throw new Error(`You already own this game: ${gameId}`);
+      }
+
+      // Create transaction record
+      const transaction = await transactionRepo.create({
+        userId,
+        gameId,
+        amount: game.basePrice,
+        paymentId,
+        status: "completed",
+      });
+
+      // Add game to user's library
+      await libraryRepo.create({
+        userId,
+        gameId,
+        purchaseDate: new Date(),
+      });
+
+      transactions.push(transaction);
+    }
+
+    return transactions;
+  }
+
   async getUserTransactions(userId: string) {
     return await transactionRepo.findByUserId(userId);
   }

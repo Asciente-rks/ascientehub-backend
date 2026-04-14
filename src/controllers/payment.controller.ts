@@ -2,10 +2,102 @@ import { Request, Response } from "express";
 import { PaymentService } from "../services/payment.service";
 import { TransactionService } from "../services/transaction.service";
 import { PaymentMethodService } from "../services/paymentMethod.service";
+import { CartService } from "../services/cart.service";
 
 const paymentService = new PaymentService();
 const transactionService = new TransactionService();
 const paymentMethodService = new PaymentMethodService();
+const cartService = new CartService();
+
+const shouldUsePortfolioPaymentBypass =
+  process.env.PAYMENT_PORTFOLIO_MODE === "true" ||
+  process.env.NODE_ENV !== "production";
+
+const createSimulatedPayment = (amount: number) => ({
+  id: `sim_${Date.now()}`,
+  attributes: {
+    status: "succeeded",
+    amount: Math.round(Number(amount) * 100),
+    next_action: null,
+  },
+});
+
+const isCardExpired = (method: any) => {
+  const expMonth = Number(method?.expMonth);
+  const expYear = Number(method?.expYear);
+
+  if (!expMonth || !expYear) {
+    return false;
+  }
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  if (expYear < currentYear) {
+    return true;
+  }
+
+  if (expYear === currentYear && expMonth < currentMonth) {
+    return true;
+  }
+
+  return false;
+};
+
+const getPaymentMethodCandidates = (
+  savedMethods: any[],
+  requestedMethodId?: string,
+) => {
+  const methodsByPaymongoId = new Map<string, any>();
+  const methodsByDbId = new Map<string, any>();
+  for (const method of savedMethods) {
+    if (method?.id) {
+      methodsByDbId.set(method.id, method);
+    }
+    if (method?.paymongoId) {
+      methodsByPaymongoId.set(method.paymongoId, method);
+    }
+  }
+
+  const preferred: any[] = [];
+  if (requestedMethodId) {
+    const byPaymongoId = methodsByPaymongoId.get(requestedMethodId);
+    const byDbId = methodsByDbId.get(requestedMethodId);
+    const resolvedRequested = byPaymongoId || byDbId;
+    if (resolvedRequested) {
+      preferred.push(resolvedRequested);
+    }
+  }
+
+  const defaultMethod = savedMethods.find((method: any) => method.isDefault);
+  if (
+    defaultMethod?.paymongoId &&
+    !preferred.some((method) => method.paymongoId === defaultMethod.paymongoId)
+  ) {
+    preferred.push(defaultMethod);
+  }
+
+  for (const method of savedMethods) {
+    if (
+      method?.paymongoId &&
+      !preferred.some((m) => m.paymongoId === method.paymongoId)
+    ) {
+      preferred.push(method);
+    }
+  }
+
+  return preferred;
+};
+
+const isExpiredMethodAttachError = (attachError: any) =>
+  attachError?.code === "payment_method_not_allowed" &&
+  typeof attachError?.detail === "string" &&
+  attachError.detail.toLowerCase().includes("expired");
+
+const isReattachMethodError = (attachError: any) =>
+  typeof attachError?.detail === "string" &&
+  attachError.detail.toLowerCase().includes("cannot be re-attached");
 
 export const createPaymentSource = async (req: Request, res: Response) => {
   try {
@@ -57,17 +149,30 @@ export const createPayment = async (req: Request, res: Response) => {
       });
     }
 
-    let selectedPaymentMethodId = paymentMethodId;
-    if (!selectedPaymentMethodId) {
-      const savedMethods = await paymentMethodService.listPaymentMethods(userId);
-      const defaultMethod = savedMethods.find((method: any) => method.isDefault) || savedMethods[0];
-      selectedPaymentMethodId = defaultMethod?.paymongoId;
-    }
+    const savedMethods = await paymentMethodService.listPaymentMethods(userId);
+    const candidates = getPaymentMethodCandidates(
+      savedMethods,
+      paymentMethodId,
+    );
+    const selectedMethod = candidates[0];
+    const selectedPaymentMethodId = selectedMethod?.paymongoId;
 
-    if (!selectedPaymentMethodId) {
+    if (!selectedPaymentMethodId && !shouldUsePortfolioPaymentBypass) {
       return res.status(400).json({
         message:
           "Payment method ID is required. Either provide paymentMethodId or save a card first.",
+      });
+    }
+
+    const nonExpiredCandidates = candidates.filter(
+      (method: any) => !isCardExpired(method),
+    );
+
+    if (nonExpiredCandidates.length === 0 && !shouldUsePortfolioPaymentBypass) {
+      return res.status(400).json({
+        code: "card_expired",
+        message:
+          "All saved cards are expired. Please add or select a valid card and try again.",
       });
     }
 
@@ -86,19 +191,63 @@ export const createPayment = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "You already own this game" });
     }
 
-    // Create payment intent
-    const paymentIntent = await paymentService.createPaymentIntent(
-      game.basePrice,
-      paymentMethodId,
-      `Purchase: ${game.title}`,
-      gameId,
-    );
+    let confirmedPayment: any = null;
+    let lastAttachError: any = null;
 
-    // Attach payment method and confirm payment
-    const confirmedPayment = await paymentService.attachAndConfirmPayment(
-      paymentIntent.id,
-      paymentMethodId
-    );
+    for (const method of nonExpiredCandidates) {
+      try {
+        const paymentIntent = await paymentService.createPaymentIntent(
+          game.basePrice,
+          method.paymongoId,
+          `Purchase: ${game.title}`,
+          gameId,
+        );
+
+        confirmedPayment = await paymentService.attachAndConfirmPayment(
+          paymentIntent.id,
+          method.paymongoId,
+        );
+
+        break;
+      } catch (attachError: any) {
+        lastAttachError = attachError;
+
+        const expiredMethodError = isExpiredMethodAttachError(attachError);
+        const nonReusableMethodError = isReattachMethodError(attachError);
+
+        if (expiredMethodError || nonReusableMethodError) {
+          continue;
+        }
+
+        throw attachError;
+      }
+    }
+
+    if (!confirmedPayment) {
+      if (shouldUsePortfolioPaymentBypass) {
+        confirmedPayment = createSimulatedPayment(Number(game.basePrice));
+      }
+
+      if (!confirmedPayment) {
+        if (isExpiredMethodAttachError(lastAttachError)) {
+          return res.status(400).json({
+            code: "card_expired",
+            message:
+              "Selected card is expired. Please add or select a valid card and try again.",
+          });
+        }
+
+        if (isReattachMethodError(lastAttachError)) {
+          return res.status(400).json({
+            code: "payment_method_consumed",
+            message:
+              "Saved card can no longer be reused. Please add a new card and try again.",
+          });
+        }
+
+        throw lastAttachError || new Error("Payment could not be completed");
+      }
+    }
 
     // If payment is successful, create transaction record
     if (confirmedPayment.attributes.status === "succeeded") {
@@ -106,15 +255,20 @@ export const createPayment = async (req: Request, res: Response) => {
         userId,
         gameId,
         game.basePrice,
-        confirmedPayment.id
+        confirmedPayment.id,
       );
 
       return res.status(200).json({
-        message: "Payment successful! Game added to your library.",
+        message: shouldUsePortfolioPaymentBypass
+          ? "Payment successful! Game added to your library. (portfolio simulated payment)"
+          : "Payment successful! Game added to your library.",
         payment: {
           id: confirmedPayment.id,
           status: confirmedPayment.attributes.status,
           amount: confirmedPayment.attributes.amount / 100, // Convert back to PHP
+          simulated:
+            shouldUsePortfolioPaymentBypass &&
+            confirmedPayment.id.startsWith("sim_"),
         },
       });
     }
@@ -134,12 +288,197 @@ export const createPayment = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Checkout cart with multiple games - simple and fast
+ * Cart has 1+ games -> One payment -> All games added to library
+ */
+export const checkoutCart = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { paymentMethodId } = req.body;
+
+    // Get cart items
+    const cartItems = await cartService.getCart(userId);
+
+    if (!cartItems || cartItems.length === 0) {
+      return res.status(400).json({
+        message: "Cart is empty",
+      });
+    }
+
+    // Get game IDs and prices
+    const gameIds = cartItems.map((item: any) => item.gameId);
+    const games = cartItems.map((item: any) => item.Game);
+
+    // Validate all games exist
+    if (games.some((game: any) => !game)) {
+      return res.status(404).json({ message: "One or more games not found" });
+    }
+
+    // Check user doesn't already own any games
+    for (const gameId of gameIds) {
+      const alreadyOwns = await transactionService.checkGameOwnership(
+        userId,
+        gameId,
+      );
+      if (alreadyOwns) {
+        return res.status(400).json({
+          message: `You already own one of the games in your cart`,
+        });
+      }
+    }
+
+    // Calculate total price
+    const totalAmount = games.reduce(
+      (sum: number, game: any) => sum + parseFloat(game.basePrice),
+      0,
+    );
+
+    const savedMethods = await paymentMethodService.listPaymentMethods(userId);
+    const candidates = getPaymentMethodCandidates(
+      savedMethods,
+      paymentMethodId,
+    );
+
+    if (candidates.length === 0 && !shouldUsePortfolioPaymentBypass) {
+      return res.status(400).json({
+        message:
+          "Payment method ID is required. Either provide paymentMethodId or save a card first.",
+      });
+    }
+
+    const nonExpiredCandidates = candidates.filter(
+      (method: any) => !isCardExpired(method),
+    );
+
+    if (nonExpiredCandidates.length === 0 && !shouldUsePortfolioPaymentBypass) {
+      return res.status(400).json({
+        code: "card_expired",
+        message:
+          "All saved cards are expired. Please add or select a valid card and try again.",
+      });
+    }
+
+    // Create single payment intent for all games
+    const gameTitle =
+      games.length === 1 ? games[0].title : `${games.length} games`;
+    let confirmedPayment: any = null;
+    let lastAttachError: any = null;
+
+    for (const method of nonExpiredCandidates) {
+      try {
+        const paymentIntent = await paymentService.createPaymentIntent(
+          totalAmount,
+          method.paymongoId,
+          `Purchase: ${gameTitle}`,
+          undefined, // No single gameId since it's multiple
+        );
+
+        confirmedPayment = await paymentService.attachAndConfirmPayment(
+          paymentIntent.id,
+          method.paymongoId,
+        );
+
+        break;
+      } catch (attachError: any) {
+        lastAttachError = attachError;
+
+        const isExpiredMethodError = isExpiredMethodAttachError(attachError);
+        const isNonReusableMethodError = isReattachMethodError(attachError);
+
+        if (isExpiredMethodError || isNonReusableMethodError) {
+          continue;
+        }
+
+        throw attachError;
+      }
+    }
+
+    if (!confirmedPayment) {
+      if (shouldUsePortfolioPaymentBypass) {
+        confirmedPayment = createSimulatedPayment(totalAmount);
+      }
+
+      if (!confirmedPayment) {
+        const isExpiredMethodError =
+          isExpiredMethodAttachError(lastAttachError);
+        const isNonReusableMethodError = isReattachMethodError(lastAttachError);
+
+        if (isExpiredMethodError) {
+          return res.status(400).json({
+            code: "card_expired",
+            message:
+              "Selected card is expired. Please add or select a valid card and try again.",
+          });
+        }
+
+        if (isNonReusableMethodError) {
+          return res.status(400).json({
+            code: "payment_method_consumed",
+            message:
+              "Saved card can no longer be reused. Please add a new card and try again.",
+          });
+        }
+
+        throw lastAttachError || new Error("Payment could not be completed");
+      }
+    }
+
+    // If payment is successful, create transactions for ALL games at once
+    if (confirmedPayment.attributes.status === "succeeded") {
+      await transactionService.createBulkTransactions(
+        userId,
+        gameIds,
+        confirmedPayment.id,
+      );
+
+      // Clear the cart
+      await cartService.clearCart(userId);
+
+      return res.status(200).json({
+        message: shouldUsePortfolioPaymentBypass
+          ? `Payment successful! ${games.length} game(s) added to your library. (portfolio simulated payment)`
+          : `Payment successful! ${games.length} game(s) added to your library.`,
+        payment: {
+          id: confirmedPayment.id,
+          status: confirmedPayment.attributes.status,
+          amount: confirmedPayment.attributes.amount / 100,
+          gamesCount: games.length,
+          games: games.map((g: any) => ({ id: g.id, title: g.title })),
+          simulated:
+            shouldUsePortfolioPaymentBypass &&
+            confirmedPayment.id.startsWith("sim_"),
+        },
+      });
+    }
+
+    // If payment requires additional action
+    res.status(200).json({
+      message: "Payment initiated",
+      payment: {
+        id: confirmedPayment.id,
+        status: confirmedPayment.attributes.status,
+        amount: confirmedPayment.attributes.amount / 100,
+        next_action: confirmedPayment.attributes.next_action,
+        gamesCount: games.length,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 export const listPaymentMethods = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const methods = await paymentMethodService.listPaymentMethods(userId);
 
-    res.status(200).json({ paymentMethods: methods });
+    const methodsWithExpiryInfo = methods.map((method: any) => ({
+      ...method.toJSON(),
+      isExpired: isCardExpired(method),
+    }));
+
+    res.status(200).json({ paymentMethods: methodsWithExpiryInfo });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
@@ -155,7 +494,10 @@ export const deletePaymentMethod = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Payment method ID is required" });
     }
 
-    const deleted = await paymentMethodService.deletePaymentMethod(userId, methodIdStr);
+    const deleted = await paymentMethodService.deletePaymentMethod(
+      userId,
+      methodIdStr,
+    );
     if (!deleted) {
       return res.status(404).json({ message: "Payment method not found" });
     }
@@ -176,7 +518,10 @@ export const setDefaultPaymentMethod = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Payment method ID is required" });
     }
 
-    const success = await paymentMethodService.setDefaultPaymentMethod(userId, methodIdStr);
+    const success = await paymentMethodService.setDefaultPaymentMethod(
+      userId,
+      methodIdStr,
+    );
     if (!success) {
       return res.status(404).json({ message: "Payment method not found" });
     }
