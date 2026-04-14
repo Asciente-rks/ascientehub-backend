@@ -26,8 +26,29 @@ router.get("/:id", getGameDetails);
  * Developer routes (authenticated)
  */
 router.get("/dev/my-games", authenticateToken, getMyGames);
-router.patch("/:gameId", authenticateToken, editGame);
+// Allow file uploads (thumbnail/trailer) when editing a game
+router.patch(
+  "/:gameId",
+  authenticateToken,
+  upload.fields([
+    { name: "thumbnail", maxCount: 1 },
+    { name: "trailer", maxCount: 1 },
+  ]),
+  editGame,
+);
+// Accept PUT as an alias for clients that use PUT for updates
+router.put("/:gameId", authenticateToken, editGame);
 router.delete("/:gameId", authenticateToken, deleteGame);
+// Accept PUT as an alias for clients that use PUT for updates (also accept files)
+router.put(
+  "/:gameId",
+  authenticateToken,
+  upload.fields([
+    { name: "thumbnail", maxCount: 1 },
+    { name: "trailer", maxCount: 1 },
+  ]),
+  editGame,
+);
 
 /**
  * 1. authenticateToken: Ensures the user is logged in.
