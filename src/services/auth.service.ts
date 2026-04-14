@@ -116,6 +116,9 @@ export class AuthService {
       {
         id: user.id,
         roleId: user.roleId,
+        // Include roleName in the token so downstream middleware and clients can
+        // make UI decisions without an extra DB lookup.
+        roleName: user.Role?.name || (await roleRepo.findById(user.roleId))?.name || null,
       },
       process.env.JWT_SECRET as string,
       { expiresIn: "1d" },

@@ -11,10 +11,11 @@ export class MetaService {
       categoryRepo.findAll(),
     ]);
 
-    // Filter out Admin roles so a random person can't register as Admin
-    const publicRoles = allRoles.filter(
-      (role) => role.name === "Buyer" || role.name === "Developer",
-    );
+    // Filter out Admin roles so a random person can't register as Admin.
+    // Note: older code referenced 'Buyer' but roles are seeded as 'User'.
+    // Allow both 'User' and 'Buyer' for backward compatibility.
+    const allowed = new Set(["User", "Buyer", "Developer"]);
+    const publicRoles = allRoles.filter((role) => allowed.has(role.name));
 
     return { roles: publicRoles, categories };
   }

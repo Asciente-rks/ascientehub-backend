@@ -112,11 +112,14 @@ export class DeveloperService {
     }
   }
 
-  async deleteGame(gameId: string, developerId: string) {
+  async deleteGame(gameId: string, requesterId: string, isAdmin = false) {
     const game = await gameRepo.findById(gameId);
     if (!game) throw new Error("Game not found");
-    if ((game as any).developerId !== developerId)
+
+    // Allow Admins to delete any game; otherwise ensure the requester owns the game
+    if (!isAdmin && (game as any).developerId !== requesterId)
       throw new Error("Unauthorized");
+
     return await (game as any).destroy();
   }
 

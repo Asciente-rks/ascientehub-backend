@@ -1,7 +1,10 @@
 import { Response, NextFunction } from "express";
 import { AuthRequest } from "./auth.middleware";
+import { ROLES } from "../config/constants";
 
 export const authorizeRoles = (...allowedRoles: string[]) => {
+  const allowedLower = allowedRoles.map((r) => String(r).toLowerCase());
+
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     const user = req.user;
 
@@ -12,13 +15,22 @@ export const authorizeRoles = (...allowedRoles: string[]) => {
         .json({ message: "Unauthorized: No session found." });
     }
 
-    // 2. Pure logic check: Does the roleName from the JWT match the allowed list?
-    if (!user.roleName || !allowedRoles.includes(user.roleName)) {
-      return res.status(403).json({
-        message: `Forbidden: This action requires ${allowedRoles.join(" or ")} permissions.`,
-      });
+    // 2. If roleName exists, perform case-insensitive match
+    if (user.roleName && allowedLower.includes(String(user.roleName).toLowerCase())) {
+      return next();
     }
 
-    next();
+    // 3. As a fallback, allow matching by roleId using the ROLES map (supports older tokens)
+    if (user.roleId) {
+      const matches = allowedRoles.some((r) => {
+        const key = String(r).toUpperCase() === "BUYER" ? "USER" : String(r).toUpperCase();
+        return (ROLES as any)[key] && (ROLES as any)[key] === user.roleId;
+      });
+      if (matches) return next();
+    }
+
+    return res.status(403).json({
+      message: `Forbidden: This action requires ${allowedRoles.join(" or ")} permissions.`,
+    });
   };
 };

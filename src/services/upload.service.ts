@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export class UploadService {
@@ -61,6 +61,24 @@ export class UploadService {
     }
 
     return uploads;
+  }
+
+  /**
+   * Fetch an object from R2/S3 and return the raw response from the SDK.
+   * Caller is responsible for streaming the Body to the HTTP response.
+   */
+  async getObject(key: string) {
+    if (!this.bucketName) {
+      throw new Error("R2_BUCKET_NAME is not set. Cannot fetch object.");
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+    });
+
+    const result = await this.s3.send(command);
+    return result;
   }
 }
 

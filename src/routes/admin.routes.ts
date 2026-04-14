@@ -6,8 +6,14 @@ import {
   getPendingGames,
   reviewGame,
 } from "../controllers/admin.controller";
+import { authenticateToken } from "../middlewares/auth.middleware";
+import { authorizeRoles } from "../middlewares/role.middleware";
 
 const router = Router();
+
+// Admin routes require authentication and Admin role
+router.use(authenticateToken);
+router.use(authorizeRoles("Admin"));
 
 // GET /api/admin/developers/pending
 router.get("/developers/pending", getPendingDevelopers);

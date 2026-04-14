@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { AuthService } from "../services/auth.service";
 import { ROLES } from "../config/constants"; // Import your UUID constants
+import { mapToUserDTO } from "../dtos/user.dto";
 
 const authService = new AuthService();
 
@@ -117,14 +118,4 @@ export const logout = async (req: Request, res: Response) => {
   }
 };
 
-export const mapToUserDTO = (user: any) => {
-  const userData = user.get ? user.get({ plain: true }) : user;
-
-  return {
-    id: userData.id,
-    name: userData.name,
-    email: userData.email,
-    role: userData.role?.name || userData.role, // Handle if it's an object or a string
-    status: userData.status,
-  };
-};
+// Note: user DTO mapping is provided by `src/dtos/user.dto.ts` and imported above.

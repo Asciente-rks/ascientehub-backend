@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { DeveloperService } from "../services/developer.service";
+import { ROLES } from "../config/constants";
 
 const devService = new DeveloperService();
 
@@ -48,7 +49,12 @@ export const deleteGame = async (req: Request, res: Response) => {
   try {
     const developerId = (req as any).user.id;
     const { gameId } = req.params as { gameId: string };
-    await devService.deleteGame(gameId, developerId);
+    const user: any = (req as any).user;
+    const isAdmin =
+      (user.roleName && String(user.roleName).toLowerCase() === "admin") ||
+      user.roleId === ROLES.ADMIN;
+
+    await devService.deleteGame(gameId, developerId, !!isAdmin);
     res.status(200).json({ message: "Game deleted" });
   } catch (error: any) {
     res.status(400).json({ message: error.message });

@@ -1,16 +1,17 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import Role from "../models/Role";
 
 // 1. Update the Interface to include roleName
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     roleId: string;
-    roleName: string; // Added this
+    roleName?: string | null; // Optional because older tokens may not include it
   };
 }
 
-export const authenticateToken = (
+export const authenticateToken = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction,
@@ -22,16 +23,30 @@ export const authenticateToken = (
     return res.status(401).json({ message: "Access token not found" });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET!, (err: any, decoded: any) => {
+  jwt.verify(token, process.env.JWT_SECRET!, async (err: any, decoded: any) => {
     if (err) {
       return res.status(403).json({ message: "Invalid token" });
     }
 
-    // 2. Attach the full decoded payload (id, roleId, roleName)
+    // Attach id and roleId always. If roleName is missing, attempt a DB lookup.
+    const id = decoded.id;
+    const roleId = decoded.roleId;
+    let roleName = decoded.roleName;
+
+    if (!roleName && roleId) {
+      try {
+        const role = await Role.findByPk(roleId);
+        roleName = role ? (role.get ? role.get({ plain: true }).name : role.name) : null;
+      } catch (e) {
+        // ignore lookup failures; roleName will remain undefined/null
+        console.error("Failed to load role name during auth middleware:", e);
+      }
+    }
+
     req.user = {
-      id: decoded.id,
-      roleId: decoded.roleId,
-      roleName: decoded.roleName, // This must be in your JWT payload from login
+      id,
+      roleId,
+      roleName,
     };
 
     next();

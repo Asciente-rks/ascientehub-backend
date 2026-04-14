@@ -7,10 +7,13 @@ import {
 } from "../controllers/developer.controller";
 import { authenticateToken } from "../middlewares/auth.middleware";
 import { upload } from "../middlewares/upload.middleware";
+import { authorizeRoles } from "../middlewares/role.middleware";
 
 const router = Router();
 
 router.use(authenticateToken);
+// Only users with Developer or Admin roles can access developer management routes
+router.use(authorizeRoles("Developer", "Admin"));
 
 router.get("/games", getMyGames);
 // Accept multipart form edits (thumbnail/trailer) from the developer UI
