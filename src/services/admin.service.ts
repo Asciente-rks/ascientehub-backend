@@ -1,4 +1,5 @@
 import { AdminRepository } from "../repositories/admin.repository";
+import { ROLES } from "../config/constants";
 
 const adminRepo = new AdminRepository();
 
@@ -6,6 +7,29 @@ export class AdminService {
   // This is what your Controller calls
   async getDeveloperApplications() {
     return await adminRepo.findPendingDevelopers();
+  }
+
+  async getUsers(opts: { page?: number; limit?: number; sort?: string; include?: string }) {
+    const page = opts.page && opts.page > 0 ? opts.page : 1;
+    const limit = opts.limit && opts.limit > 0 ? opts.limit : 10;
+    const offset = (page - 1) * limit;
+    const sort = opts.sort || "createdAt:desc";
+
+    const includePurchases = Boolean(
+      opts.include && String(opts.include).split(",").map((s) => s.trim()).includes("purchases"),
+    );
+
+    const { rows, count } = await adminRepo.findUsers({ offset, limit, sort, includePurchases });
+
+    return {
+      users: rows,
+      meta: {
+        total: count,
+        page,
+        limit,
+        pages: Math.ceil(count / limit),
+      },
+    };
   }
 
   async reviewDeveloperApplication(
@@ -17,10 +41,13 @@ export class AdminService {
     if (!user) throw new Error("User not found");
 
     if (decision === "accept") {
+      // When accepting a developer application, set the user's role to Developer
+      // and activate the account.
       return await adminRepo.updateUserStatus(userId, {
         status: "active",
         rejectionReason: null,
         canReapplyAt: null,
+        roleId: ROLES.DEVELOPER,
       });
     }
 

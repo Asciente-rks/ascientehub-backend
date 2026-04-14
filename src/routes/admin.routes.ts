@@ -5,6 +5,7 @@ import {
   getUserPurchases,
   getPendingGames,
   reviewGame,
+  getUsers,
 } from "../controllers/admin.controller";
 import { authenticateToken } from "../middlewares/auth.middleware";
 import { authorizeRoles } from "../middlewares/role.middleware";
@@ -17,6 +18,9 @@ router.use(authorizeRoles("Admin"));
 
 // GET /api/admin/developers/pending
 router.get("/developers/pending", getPendingDevelopers);
+
+// GET /api/admin/users -> paginated list
+router.get("/users", getUsers);
 
 // PATCH /api/admin/review-developer/:userId
 router.patch("/review-developer/:userId", reviewDevApplication);

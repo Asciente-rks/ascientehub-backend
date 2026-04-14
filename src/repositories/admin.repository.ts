@@ -9,13 +9,16 @@ export class AdminRepository {
    * but ONLY if their role is 'Developer'.
    */
   async findPendingDevelopers() {
+    // Return all users with a pending status so admins can review applications
+    // submitted either at registration or via the apply-for-developer flow.
     return await User.findAll({
       where: { status: "pending" },
       include: [
         {
           model: Role,
           as: "Role",
-          where: { name: "Developer" },
+          // Do not filter by role name here — applicants may still have the
+          // 'User' role when they request a developer application.
         },
         {
           model: Game,
@@ -23,6 +26,62 @@ export class AdminRepository {
         },
       ],
       attributes: ["id", "username", "email", "status", "createdAt"],
+    });
+  }
+
+  /**
+   * Paginated user list for Admin UI.
+   * Supports query options: offset, limit, sort (e.g. 'role:asc' or 'createdAt:desc').
+   */
+  async findUsers(options: {
+    offset?: number;
+    limit?: number;
+    sort?: string;
+    includePurchases?: boolean;
+  }) {
+    const offset = options.offset || 0;
+    const limit = options.limit || 10;
+    const sort = options.sort || "createdAt:desc";
+
+    // Build Sequelize order array
+    const order: any[] = [];
+    const parts = sort.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const p of parts) {
+      const [field, dir = "asc"] = p.split(":");
+      const direction = dir.toUpperCase() === "DESC" ? "DESC" : "ASC";
+      if (field === "role") {
+        // Order by associated Role.name
+        order.push([{ model: Role, as: "Role" }, "name", direction]);
+      } else if (["username", "email", "status", "createdAt"].includes(field)) {
+        order.push([field, direction]);
+      } else {
+        // Fallback
+        order.push(["createdAt", "DESC"]);
+      }
+    }
+
+    const includeArr: any[] = [
+      {
+        model: Role,
+        as: "Role",
+        attributes: ["id", "name"],
+      },
+    ];
+
+    if (options.includePurchases) {
+      includeArr.push({
+        model: Transaction,
+        attributes: ["id", "amount", "gameId", "createdAt"],
+        include: [{ model: Game }],
+      });
+    }
+
+    return await User.findAndCountAll({
+      offset,
+      limit,
+      order,
+      include: includeArr,
+      attributes: ["id", "username", "email", "roleId", "status", "createdAt"],
     });
   }
 
