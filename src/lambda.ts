@@ -7,40 +7,35 @@ import redis from "./utils/caching"; // Import Redis utility
 import { APIGatewayProxyEventV2 } from "aws-lambda"; // Use the correct type for HTTP API Gateway
 
 let cachedServer: any = null;
+let isDbReady = false;
 
 // Initialize database connection and associations
 const initializeDatabase = async () => {
-  const dbReadyKey = "db_ready_v2";
-  const cachedDbReady = await redis.get(dbReadyKey);
+  if (isDbReady) {
+    console.log("Database is already initialized (memory).");
+    return;
+  }
 
-  if (!cachedDbReady) {
-    try {
-      console.log("Initializing database connection...");
-      await sequelizeConnection.authenticate();
-      setupAssociations();
-      await sequelizeConnection.sync({ alter: true }); // AUTO-ADD missing columns
-      await redis.set(dbReadyKey, "true", "EX", 3600); // Cache for 1 hour
-      console.log("Database connected and associations set.");
-    } catch (err) {
-      console.error("DB Initialization Error:", err);
-      throw err;
-    }
-  } else {
-    console.log("Database is already initialized (cached).");
+  try {
+    console.log("Initializing database connection...");
+    await sequelizeConnection.authenticate();
+    setupAssociations();
+    await sequelizeConnection.sync({ alter: true }); // AUTO-ADD missing columns
+    isDbReady = true;
+    console.log("Database connected and associations set.");
+  } catch (err) {
+    console.error("DB Initialization Error:", err);
+    throw err;
   }
 };
 
 // Bootstrap the server
 const bootstrap = async () => {
-  const serverKey = "server_ready";
-  const cachedServerReady = await redis.get(serverKey);
-
-  if (!cachedServerReady) {
-    console.log("Initializing server...");
+  if (!cachedServer) {
+    console.log("Initializing server in memory...");
     cachedServer = serverlessExpress({ app });
-    await redis.set(serverKey, "true", "EX", 3600); // Cache for 1 hour
   } else {
-    console.log("Server is already initialized (cached).");
+    console.log("Server is already initialized (memory).");
   }
   return cachedServer;
 };
