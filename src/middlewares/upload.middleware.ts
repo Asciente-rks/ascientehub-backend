@@ -9,7 +9,9 @@ const storage = multer.memoryStorage();
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit for direct R2 uploads
+    // Lambda Function URL request payload cap is ~6MB.
+    // Keep this below that threshold so Express returns a proper error response.
+    fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     // Basic validation to ensure we only get images and videos
