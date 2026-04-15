@@ -56,7 +56,7 @@ export const handler = async (event: LambdaEvent, context: Context) => {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE,PATCH",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, x-amz-date, x-api-key, x-amz-security-token",
+      "Content-Type, Authorization, x-amz-date, x-api-key, x-amz-security-token, x-access-token, Accept",
   };
 
   try {
