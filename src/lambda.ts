@@ -8,6 +8,8 @@ import { APIGatewayProxyEventV2 } from "aws-lambda"; // Use the correct type for
 
 let cachedServer: any = null;
 let isDbReady = false;
+let dbInitPromise: Promise<void> | null = null;
+let serverInitPromise: Promise<void> | null = null;
 
 // Initialize database connection and associations
 const initializeDatabase = async () => {
@@ -16,31 +18,89 @@ const initializeDatabase = async () => {
     return;
   }
 
-  try {
-    console.log("Initializing database connection...");
-    await sequelizeConnection.authenticate();
-    setupAssociations();
-    await sequelizeConnection.sync({ alter: true }); // AUTO-ADD missing columns
-    isDbReady = true;
-    console.log("Database connected and associations set.");
-  } catch (err) {
-    console.error("DB Initialization Error:", err);
-    throw err;
+  if (dbInitPromise) {
+    await dbInitPromise;
+    return;
   }
+
+  dbInitPromise = (async () => {
+    try {
+      console.log("Initializing database connection...");
+      await sequelizeConnection.authenticate();
+      setupAssociations();
+      await sequelizeConnection.sync({ alter: true }); // AUTO-ADD missing columns
+      isDbReady = true;
+      console.log("Database connected and associations set.");
+    } catch (err) {
+      console.error("DB Initialization Error:", err);
+      throw err;
+    } finally {
+      dbInitPromise = null;
+    }
+  })();
+
+  await dbInitPromise;
 };
 
 // Bootstrap the server
 const bootstrap = async () => {
-  if (!cachedServer) {
-    console.log("Initializing server in memory...");
-    cachedServer = serverlessExpress({ app });
-  } else {
+  if (cachedServer) {
     console.log("Server is already initialized (memory).");
+    return cachedServer;
   }
+
+  if (serverInitPromise) {
+    await serverInitPromise;
+    return cachedServer;
+  }
+
+  serverInitPromise = (async () => {
+    try {
+      console.log("Initializing server in memory...");
+      cachedServer = serverlessExpress({ app });
+    } finally {
+      serverInitPromise = null;
+    }
+  })();
+
+  await serverInitPromise;
+
   return cachedServer;
 };
 
 type LambdaEvent = APIGatewayProxyEventV2;
+
+const hasAuthHeaders = (headers?: Record<string, string | undefined>) => {
+  if (!headers) return false;
+  const normalized: Record<string, string | undefined> = {};
+  for (const key of Object.keys(headers)) {
+    normalized[key.toLowerCase()] = headers[key];
+  }
+
+  return Boolean(
+    normalized["authorization"] ||
+    normalized["x-access-token"] ||
+    normalized["x-auth-token"] ||
+    normalized["auth-token"] ||
+    normalized["token"],
+  );
+};
+
+const isSafePublicCachePath = (path: string) => {
+  if (path.startsWith("/api/public")) {
+    return true;
+  }
+
+  if (path === "/api/games") {
+    return true;
+  }
+
+  if (/^\/api\/games\/[^/]+$/.test(path)) {
+    return true;
+  }
+
+  return false;
+};
 
 // Lambda handler
 export const handler = async (event: LambdaEvent, context: Context) => {
@@ -63,6 +123,9 @@ export const handler = async (event: LambdaEvent, context: Context) => {
         (event.requestContext as any).http.method) ||
       (event as any).httpMethod ||
       "GET";
+    const requestHasAuthHeaders = hasAuthHeaders(event.headers || {});
+    const shouldUseCache =
+      method === "GET" && !requestHasAuthHeaders && isSafePublicCachePath(path);
 
     // Handle Preflight OPTIONS rapidly FAST FAIL before DB connection
     if (method === "OPTIONS") {
@@ -83,8 +146,8 @@ export const handler = async (event: LambdaEvent, context: Context) => {
     const query = (event as any).rawQueryString || "";
     const cacheKey = `${method}_${path}_${query}`;
 
-    // Only cache GET responses
-    if (method === "GET") {
+    // Only cache safe public GET responses without auth headers
+    if (shouldUseCache) {
       try {
         const cachedValue = await redis.get(cacheKey);
         if (cachedValue) {
@@ -110,8 +173,8 @@ export const handler = async (event: LambdaEvent, context: Context) => {
     if (!result.headers) result.headers = {};
     result.headers = { ...result.headers, ...corsHeaders };
 
-    // Cache successful GET responses
-    if (method === "GET" && result && result.statusCode === 200) {
+    // Cache only safe public GET responses
+    if (shouldUseCache && result && result.statusCode === 200) {
       try {
         await redis.set(cacheKey, JSON.stringify(result), "EX", 3600);
       } catch (err) {

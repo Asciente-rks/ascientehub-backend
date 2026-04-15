@@ -11,7 +11,13 @@ import Subscription from "./Subscription";
 import GameMedia from "./GameMedia";
 import PaymentMethod from "./PaymentMethod";
 
+let associationsInitialized = false;
+
 const setupAssociations = () => {
+  if (associationsInitialized) {
+    return;
+  }
+
   // 1. Role & User
   Role.hasMany(User, { foreignKey: "roleId" });
   User.belongsTo(Role, { foreignKey: "roleId" });
@@ -70,6 +76,8 @@ const setupAssociations = () => {
 
   Game.hasMany(GameMedia, { foreignKey: "gameId", as: "gallery" });
   GameMedia.belongsTo(Game, { foreignKey: "gameId" });
+
+  associationsInitialized = true;
 };
 
 export default setupAssociations;
