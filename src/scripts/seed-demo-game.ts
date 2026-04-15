@@ -1,5 +1,6 @@
 import sequelizeConnection from "../config/db.config";
-import { DataTypes } from "sequelize";
+import { DataTypes, Op } from "sequelize";
+import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import User from "../models/User";
 import Role from "../models/Role";
 import Category from "../models/Category";
@@ -13,6 +14,56 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^\w-]+/g, "");
+
+const getAutoInstallerKey = async (): Promise<string> => {
+  const bucketName =
+    process.env.R2_BUCKET_NAME ||
+    process.env.R2_BUCKET ||
+    process.env.BUCKET_NAME ||
+    "";
+  const endpoint = process.env.R2_ENDPOINT || "";
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID || "";
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || "";
+
+  if (!bucketName || !endpoint || !accessKeyId || !secretAccessKey) {
+    return "";
+  }
+
+  try {
+    const s3 = new S3Client({
+      region: "auto",
+      endpoint,
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+      forcePathStyle: true,
+    });
+
+    const response = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucketName,
+        MaxKeys: 500,
+      }),
+    );
+
+    const keys = (response.Contents || [])
+      .map((item) => item.Key || "")
+      .filter(Boolean);
+
+    const candidates = keys.filter((key) =>
+      /thelastlight|lastlight|installer|\.zip$/i.test(key),
+    );
+
+    if (candidates.length === 0) {
+      return "";
+    }
+
+    return candidates[candidates.length - 1];
+  } catch {
+    return "";
+  }
+};
 
 const runSeeder = async () => {
   try {
@@ -39,7 +90,7 @@ const runSeeder = async () => {
       await sequelizeConnection.sync();
     }
 
-    const title = process.env.DEMO_GAME_TITLE || "Launcher Demo Game";
+    const title = process.env.DEMO_GAME_TITLE || "TheLastLight";
     const description =
       process.env.DEMO_GAME_DESCRIPTION ||
       "This is the official demo game available in the launcher.";
@@ -48,11 +99,15 @@ const runSeeder = async () => {
 
     const installerUrlEnv = process.env.DEMO_GAME_INSTALLER_URL || "";
     const installerKeyEnv = process.env.DEMO_GAME_INSTALLER_KEY || "";
+    const autoInstallerKey =
+      installerUrlEnv || installerKeyEnv ? "" : await getAutoInstallerKey();
     const installerUrl = installerUrlEnv
       ? storageService.getFileUrl(installerUrlEnv)
       : installerKeyEnv
         ? storageService.getFileUrl(installerKeyEnv)
-        : "";
+        : autoInstallerKey
+          ? storageService.getFileUrl(autoInstallerKey)
+          : "";
 
     const thumbnailUrlEnv = process.env.DEMO_GAME_THUMBNAIL_URL || "";
     const thumbnailKeyEnv = process.env.DEMO_GAME_THUMBNAIL_KEY || "";
@@ -89,11 +144,20 @@ const runSeeder = async () => {
     }
 
     const slug = slugify(title);
-    const existing = await Game.findOne({ where: { slug } });
+    const legacySlug =
+      process.env.DEMO_GAME_LEGACY_SLUG || "launcher-demo-game";
+    const existing = await Game.findOne({
+      where: {
+        slug: {
+          [Op.in]: [slug, legacySlug],
+        },
+      },
+    });
 
     if (existing) {
       await existing.update({
         title,
+        slug,
         description,
         basePrice,
         sizeInGb,
