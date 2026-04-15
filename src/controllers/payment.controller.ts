@@ -295,7 +295,6 @@ export const createPayment = async (req: Request, res: Response) => {
 export const checkoutCart = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
-    const { paymentMethodId } = req.body;
 
     // Get cart items
     const cartItems = await cartService.getCart(userId);
@@ -334,95 +333,8 @@ export const checkoutCart = async (req: Request, res: Response) => {
       0,
     );
 
-    const savedMethods = await paymentMethodService.listPaymentMethods(userId);
-    const candidates = getPaymentMethodCandidates(
-      savedMethods,
-      paymentMethodId,
-    );
-
-    if (candidates.length === 0 && !shouldUsePortfolioPaymentBypass) {
-      return res.status(400).json({
-        message:
-          "Payment method ID is required. Either provide paymentMethodId or save a card first.",
-      });
-    }
-
-    const nonExpiredCandidates = candidates.filter(
-      (method: any) => !isCardExpired(method),
-    );
-
-    if (nonExpiredCandidates.length === 0 && !shouldUsePortfolioPaymentBypass) {
-      return res.status(400).json({
-        code: "card_expired",
-        message:
-          "All saved cards are expired. Please add or select a valid card and try again.",
-      });
-    }
-
-    // Create single payment intent for all games
-    const gameTitle =
-      games.length === 1 ? games[0].title : `${games.length} games`;
-    let confirmedPayment: any = null;
-    let lastAttachError: any = null;
-
-    for (const method of nonExpiredCandidates) {
-      try {
-        const paymentIntent = await paymentService.createPaymentIntent(
-          totalAmount,
-          method.paymongoId,
-          `Purchase: ${gameTitle}`,
-          undefined, // No single gameId since it's multiple
-        );
-
-        confirmedPayment = await paymentService.attachAndConfirmPayment(
-          paymentIntent.id,
-          method.paymongoId,
-        );
-
-        break;
-      } catch (attachError: any) {
-        lastAttachError = attachError;
-
-        const isExpiredMethodError = isExpiredMethodAttachError(attachError);
-        const isNonReusableMethodError = isReattachMethodError(attachError);
-
-        if (isExpiredMethodError || isNonReusableMethodError) {
-          continue;
-        }
-
-        throw attachError;
-      }
-    }
-
-    if (!confirmedPayment) {
-      if (shouldUsePortfolioPaymentBypass) {
-        confirmedPayment = createSimulatedPayment(totalAmount);
-      }
-
-      if (!confirmedPayment) {
-        const isExpiredMethodError =
-          isExpiredMethodAttachError(lastAttachError);
-        const isNonReusableMethodError = isReattachMethodError(lastAttachError);
-
-        if (isExpiredMethodError) {
-          return res.status(400).json({
-            code: "card_expired",
-            message:
-              "Selected card is expired. Please add or select a valid card and try again.",
-          });
-        }
-
-        if (isNonReusableMethodError) {
-          return res.status(400).json({
-            code: "payment_method_consumed",
-            message:
-              "Saved card can no longer be reused. Please add a new card and try again.",
-          });
-        }
-
-        throw lastAttachError || new Error("Payment could not be completed");
-      }
-    }
+    // Demo checkout mode: skip PayMongo/3DS and immediately fulfill purchase.
+    const confirmedPayment = createSimulatedPayment(totalAmount);
 
     // If payment is successful, create transactions for ALL games at once
     if (confirmedPayment.attributes.status === "succeeded") {
