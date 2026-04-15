@@ -33,8 +33,10 @@ export const proxyObject = async (req: Request, res: Response) => {
     }
 
     const key = decodeURIComponent(keyParam);
+    const rangeHeader =
+      typeof req.headers.range === "string" ? req.headers.range : undefined;
 
-    const obj = await uploadService.getObject(key);
+    const obj = await uploadService.getObject(key, rangeHeader);
 
     if (!obj || !obj.Body) {
       return res.status(404).json({ message: "Object not found" });
@@ -42,6 +44,13 @@ export const proxyObject = async (req: Request, res: Response) => {
 
     const contentType =
       (obj.ContentType as string) || "application/octet-stream";
+    res.setHeader("Accept-Ranges", "bytes");
+
+    if (rangeHeader && obj.ContentRange) {
+      res.status(206);
+      res.setHeader("Content-Range", String(obj.ContentRange));
+    }
+
     if (obj.ContentLength) {
       res.setHeader("Content-Length", String(obj.ContentLength));
     }

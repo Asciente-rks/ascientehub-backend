@@ -1,9 +1,47 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export class UploadService {
   private s3: S3Client;
   private bucketName: string;
+
+  private normalizeObjectKey(input: string) {
+    let value = String(input || "").trim();
+    if (!value) {
+      return value;
+    }
+
+    // Remove query string if the caller passes a URL-like value.
+    const qIndex = value.indexOf("?");
+    if (qIndex >= 0) {
+      value = value.slice(0, qIndex);
+    }
+
+    try {
+      const parsed = new URL(value);
+      value = parsed.pathname || value;
+    } catch {
+      // Keep raw key if not a URL.
+    }
+
+    value = value.replace(/^\/+/, "");
+
+    if (this.bucketName && value.startsWith(`${this.bucketName}/`)) {
+      value = value.slice(this.bucketName.length + 1);
+    }
+
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      // keep original value when decode fails
+    }
+
+    return value;
+  }
 
   constructor() {
     // Accept multiple common env names as fallbacks to be flexible
@@ -67,14 +105,17 @@ export class UploadService {
    * Fetch an object from R2/S3 and return the raw response from the SDK.
    * Caller is responsible for streaming the Body to the HTTP response.
    */
-  async getObject(key: string) {
+  async getObject(key: string, range?: string) {
     if (!this.bucketName) {
       throw new Error("R2_BUCKET_NAME is not set. Cannot fetch object.");
     }
 
+    const normalizedKey = this.normalizeObjectKey(key);
+
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
-      Key: key,
+      Key: normalizedKey,
+      ...(range ? { Range: range } : {}),
     });
 
     const result = await this.s3.send(command);
