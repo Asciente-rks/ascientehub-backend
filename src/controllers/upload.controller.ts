@@ -113,3 +113,9 @@ export const directUpload = async (req: Request, res: Response) => {
       .json({ message: error?.message || "Direct upload failed" });
   }
 };
+
+export const directUploadInfo = async (_req: Request, res: Response) => {
+  return res.status(200).json({
+    message: "Use POST /api/uploads/direct with multipart/form-data and field 'file'.",
+  });
+};
