@@ -10,7 +10,7 @@ let cachedServer: any = null;
 
 // Initialize database connection and associations
 const initializeDatabase = async () => {
-  const dbReadyKey = "db_ready";
+  const dbReadyKey = "db_ready_v2";
   const cachedDbReady = await redis.get(dbReadyKey);
 
   if (!cachedDbReady) {
@@ -18,7 +18,7 @@ const initializeDatabase = async () => {
       console.log("Initializing database connection...");
       await sequelizeConnection.authenticate();
       setupAssociations();
-      await sequelizeConnection.sync();
+      await sequelizeConnection.sync({ alter: true }); // AUTO-ADD missing columns
       await redis.set(dbReadyKey, "true", "EX", 3600); // Cache for 1 hour
       console.log("Database connected and associations set.");
     } catch (err) {
@@ -60,12 +60,6 @@ export const handler = async (event: LambdaEvent, context: Context) => {
   };
 
   try {
-    // Initialize database (cold start optimization)
-    await initializeDatabase();
-
-    // Ensure server is bootstrapped
-    const server = await bootstrap();
-
     // Determine request path and method (support APIGW v2)
     const path = event.rawPath || (event as any).path || "/";
     const method =
@@ -75,11 +69,7 @@ export const handler = async (event: LambdaEvent, context: Context) => {
       (event as any).httpMethod ||
       "GET";
 
-    // Build a cache key that includes query string
-    const query = (event as any).rawQueryString || "";
-    const cacheKey = `${method}_${path}_${query}`;
-
-    // Handle Preflight OPTIONS rapidly
+    // Handle Preflight OPTIONS rapidly FAST FAIL before DB connection
     if (method === "OPTIONS") {
       return {
         statusCode: 200,
@@ -87,6 +77,16 @@ export const handler = async (event: LambdaEvent, context: Context) => {
         body: "",
       };
     }
+
+    // Initialize database (cold start optimization)
+    await initializeDatabase();
+
+    // Ensure server is bootstrapped
+    const server = await bootstrap();
+
+    // Build a cache key that includes query string
+    const query = (event as any).rawQueryString || "";
+    const cacheKey = `${method}_${path}_${query}`;
 
     // Only cache GET responses
     if (method === "GET") {
