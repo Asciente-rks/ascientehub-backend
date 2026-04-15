@@ -4,11 +4,31 @@ import { StorageService } from "../services/storage.service";
 
 const storageService = new StorageService();
 
+const THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024;
+const TRAILER_MAX_BYTES = 50 * 1024 * 1024;
+
 export const presignUploads = async (req: Request, res: Response) => {
   try {
     const files = req.body.files;
     if (!Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ message: "files array is required" });
+    }
+
+    for (const file of files) {
+      const folder = String(file?.folder || "").toLowerCase();
+      const size = Number(file?.size || 0);
+
+      if (folder === "thumbnails" && size > THUMBNAIL_MAX_BYTES) {
+        return res
+          .status(400)
+          .json({ message: "Thumbnail must be 10 MB or less." });
+      }
+
+      if (folder === "trailers" && size > TRAILER_MAX_BYTES) {
+        return res
+          .status(400)
+          .json({ message: "Trailer must be 50 MB or less." });
+      }
     }
 
     // files entries: { filename, contentType, folder? }
