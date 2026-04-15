@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
 import { uploadService } from "../services/upload.service";
+import { StorageService } from "../services/storage.service";
+
+const storageService = new StorageService();
 
 export const presignUploads = async (req: Request, res: Response) => {
   try {
@@ -37,7 +40,8 @@ export const proxyObject = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Object not found" });
     }
 
-    const contentType = (obj.ContentType as string) || "application/octet-stream";
+    const contentType =
+      (obj.ContentType as string) || "application/octet-stream";
     if (obj.ContentLength) {
       res.setHeader("Content-Length", String(obj.ContentLength));
     }
@@ -68,6 +72,44 @@ export const proxyObject = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Proxy error:", error);
     const status = error?.$metadata?.httpStatusCode || 500;
-    return res.status(status).json({ message: error.message || "Proxy failed" });
+    return res
+      .status(status)
+      .json({ message: error.message || "Proxy failed" });
+  }
+};
+
+export const directUpload = async (req: Request, res: Response) => {
+  try {
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ message: "file is required" });
+    }
+
+    const rawFolder = String(req.body?.folder || "uploads").toLowerCase();
+    const allowedFolders = new Set([
+      "uploads",
+      "thumbnails",
+      "trailers",
+      "installers",
+    ]);
+    const folder = allowedFolders.has(rawFolder) ? rawFolder : "uploads";
+
+    const publicUrl = await storageService.uploadFile(file as any, folder);
+
+    const publicBase = String(process.env.R2_PUBLIC_URL || "").replace(
+      /\/*$/,
+      "",
+    );
+    let key = publicUrl;
+    if (publicBase && publicUrl.startsWith(`${publicBase}/`)) {
+      key = publicUrl.slice(publicBase.length + 1);
+    }
+
+    return res.status(200).json({ key, publicUrl });
+  } catch (error: any) {
+    console.error("Direct upload error:", error);
+    return res
+      .status(500)
+      .json({ message: error?.message || "Direct upload failed" });
   }
 };

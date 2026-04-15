@@ -23,11 +23,20 @@ const runProvision = async () => {
     console.log("🔄 Connecting to database (provision)...");
     await sequelizeConnection.authenticate();
 
-    console.log(
-      "🏗️ Creating or updating tables (sequelize.sync({ alter: true }))...",
-    );
-    // alter:true will attempt to make DB schema match models without dropping data
-    await sequelizeConnection.sync({ alter: true });
+    console.log("🏗️ Creating tables if missing (sequelize.sync())...");
+    await sequelizeConnection.sync();
+
+    console.log("🧱 Ensuring additive columns exist on games table...");
+    try {
+      await sequelizeConnection.query(
+        "ALTER TABLE games ADD COLUMN IF NOT EXISTS installerUrl TEXT NULL",
+      );
+      await sequelizeConnection.query(
+        "ALTER TABLE games ADD COLUMN IF NOT EXISTS videoUrl VARCHAR(255) NULL",
+      );
+    } catch (error) {
+      console.warn("⚠️ Non-fatal schema ensure warning:", error);
+    }
 
     console.log("✅ Database provisioned (tables created/updated).");
     process.exit(0);

@@ -46,8 +46,11 @@
     "start": "node dist/index.js",
     "test": "jest --runInBand",
     "test-db": "ts-node src/test-connection.ts",
+    "provision": "ts-node src/scripts/provision.ts",
     "seed": "ts-node src/scripts/seed.ts",
-    "seed-demo-game": "ts-node src/scripts/seed-demo-game.ts"
+    "seed:production": "ts-node src/scripts/seed-production.ts",
+    "seed-demo-game": "ts-node src/scripts/seed-demo-game.ts",
+    "seed-demo-game:production": "ts-node src/scripts/seed-demo-production.ts"
   },
   "name": "ascientehub-backend",
   "version": "1.0.0",
