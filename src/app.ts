@@ -44,6 +44,16 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
+// Liveness endpoint for external health checks
+app.get("/health", (req: Request, res: Response) => {
+  res.set("Cache-Control", "no-store");
+  res.status(200).json({
+    status: "UP",
+    service: "ascientehub-backend",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/games", gameRoutes);
