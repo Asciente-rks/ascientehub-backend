@@ -1,128 +1,299 @@
 # AscienteHub
 
-> A Steam-style game launcher and storefront — desktop client, REST API, and a real shipped indie game inside.
+> A Steam-style desktop game launcher and storefront — players sign up, browse a catalog, pay with PayMongo, and install + launch titles from a real native Windows binary.
 
-AscienteHub is a full-stack game distribution platform built around a custom Windows desktop launcher. Players sign up, browse a catalog of games, purchase with credit card via PayMongo, and install + launch titles directly from the launcher. Developers can apply for a publisher role, upload installers, and track sales. Admins moderate developer applications and game submissions.
+AscienteHub is a full-stack game distribution platform: a Tauri 2 desktop launcher backed by a TypeScript/Express API on AWS Lambda, with TiDB Cloud for storage, Cloudflare R2 for game installers, and PayMongo for card payments. The flagship game in the catalog is the author's own indie title from a separate game-development project — the rest of the catalog exercises the storefront, cart, and 3-D Secure card flow.
 
-The system spans **two repositories**, plus the actual indie game shipped through it as the flagship title.
+The system spans **two repositories**:
 
 | Repository | What it is | Stack |
 |---|---|---|
-| [`ascientehub-frontend`](https://github.com/Asciente-rks/ascientehub-frontend) | Tauri desktop launcher (Windows) | Rust shell + React 18 + TypeScript + Tailwind |
+| [`ascientehub-frontend`](https://github.com/Asciente-rks/ascientehub-frontend) | Tauri 2 desktop launcher (Windows) | Rust shell + React 18 + TypeScript + Tailwind |
 | [`ascientehub-backend`](https://github.com/Asciente-rks/ascientehub-backend) | Serverless REST API | Node.js 18 + TypeScript + Express 5 + Sequelize |
 
-> **You're reading the README in one of those repos.** The same overview lives in both — scroll to [Local Development](#local-development) for setup specific to this repo.
+---
+
+## Live Demo
+
+- **🪟 Download (Windows installer):** [`ascientehub_0.1.0_x64-setup.exe`](https://github.com/Asciente-rks/ascientehub-frontend/releases/download/v1.0.2/ascientehub_0.1.0_x64-setup.exe) (v1.0.2, ~4 MB)
+- **📦 All releases:** [github.com/Asciente-rks/ascientehub-frontend/releases](https://github.com/Asciente-rks/ascientehub-frontend/releases)
+
+> **First time?** Windows SmartScreen will warn (unsigned binary) — click **More info → Run anyway**. The launcher creates a desktop shortcut and stores installed games in `%APPDATA%/com.ascientehub.app/games/<slug>/`.
 
 ---
 
 ## Table of Contents
 
-1. [Highlights](#highlights)
-2. [System Architecture](#system-architecture)
+1. [What It Does](#what-it-does)
+2. [Architecture](#architecture)
 3. [Tech Stack](#tech-stack)
-4. [Repository Layout](#repository-layout)
-5. [Database Design](#database-design)
-6. [Feature Tour](#feature-tour)
-7. [API Reference](#api-reference)
-8. [Game Launcher Mechanics](#game-launcher-mechanics)
-9. [Payment Flow (PayMongo)](#payment-flow-paymongo)
-10. [Deployment Summary](#deployment-summary)
-11. [Local Development](#local-development)
-12. [Environment Variables](#environment-variables)
-13. [Download the Launcher](#download-the-launcher)
+4. [Database Design](#database-design)
+5. [Repository Layout](#repository-layout)
+6. [API Reference](#api-reference)
+7. [Authentication & Credentials](#authentication--credentials)
+8. [Deployment](#deployment)
+9. [Cost Breakdown](#cost-breakdown)
+10. [Local Development](#local-development)
+11. [Author](#author)
 
 ---
 
-## Highlights
+## What It Does
 
-- **Real desktop app, not a web wrapper.** The launcher is a native Tauri 2 binary (~5 MB portable zip) that downloads game ZIPs, extracts them to per-user app-data, locates the executable, and spawns it as a child process — exactly the Steam pattern.
-- **Ships with a real game.** The flagship title in the catalog is an actual indie game from the author's game-development portfolio. Other catalog entries are demo games used to exercise the storefront.
-- **Production-grade serverless backend.** Express 5 API packaged for AWS Lambda via `@vendia/serverless-express`, fronted by a Function URL, with TiDB Serverless for the database, Cloudflare R2 for object storage, and Redis for caching + rate-limiting.
-- **PayMongo card payments with 3-D Secure.** PHP-denominated charges, payment-method tokenization, saved cards, full webhook handling for asynchronous confirmation.
-- **Three-tier role model.** Players, developers (gated by admin approval), and admins — each with their own UI surfaces and protected routes.
-- **CI/CD on every push.** GitHub Actions builds the TypeScript Lambda and pushes it to AWS automatically when `main` advances.
+- **Browse a real game catalog** — anonymous users hit `/api/public/games` (Redis-cached) for the storefront listing.
+- **Add to cart, check out** — multi-game checkout via PayMongo with **3-D Secure automatic** for card payments.
+- **Save cards** — PayMongo payment-method tokenization (`paymongoId` only — no PAN ever stored).
+- **Install games via the launcher** — the Tauri shell downloads a ZIP from R2, validates the `PK` magic bytes, extracts to per-user app-data, finds the first `.exe`, and spawns it.
+- **Three-tier role model** — players, developers (gated by admin approval), admins.
+- **Developer flow** — apply → admin approves → submit games (status `pending` → `approved`) → upload thumbnails / gallery / trailer / `.zip` installers via R2.
+- **Admin moderation** — approve developer applications, approve/reject games, ban users.
+- **OTP-driven auth** — email verification, password reset, account-deletion confirmation (Resend + nodemailer fallback).
+- **Production-grade serverless backend** — Lambda Function URL, cold-start hardened, auto-healing schema migration on boot.
 
 ---
 
-## System Architecture
+## Architecture
 
-```mermaid
-flowchart LR
-    subgraph User["End User (Windows desktop)"]
-        Tauri["Tauri 2 shell (Rust)"]
-        React["React 18 UI<br/>(react-router, Tailwind)"]
-        Tauri --- React
-    end
+```
+┌────────────────────────────┐
+│ Windows Desktop (Tauri 2)  │
+│  • Rust shell              │
+│  • React 18 SPA inside     │
+│  • react-router 6          │
+│  • Tailwind 3              │
+└──────────┬─────────────────┘
+           │ HTTPS (axios + JWT)
+           │
+           ▼
+┌────────────────────────────┐
+│  AWS Lambda Function URL    │
+│  ascientehub-backend        │
+│  Express 5 via              │
+│  @vendia/serverless-express │
+└──┬──────┬──────┬──────┬──┬──┘
+   │      │      │      │  │
+   │      │      │      │  └────► Resend / nodemailer (OTP email)
+   │      │      │      │
+   │      │      │      └────► PayMongo API (3DS card)
+   │      │      │
+   │      │      └────► Cloudflare R2 (S3-compatible)
+   │      │             • thumbnails, trailers, gallery
+   │      │             • game installer ZIPs
+   │      │
+   │      └────► Redis / ioredis
+   │             • global rate limit
+   │             • 1h cache on /api/public/* and /api/games[/:id]
+   │
+   └────► TiDB Cloud Serverless (MySQL-compatible, SSL)
 
-    subgraph Cloud["AWS / 3rd-party Cloud"]
-        Lambda["AWS Lambda<br/>ascientehub-backend<br/>(Express 5 via serverless-express)"]
-        TiDB[("TiDB Serverless<br/>MySQL-wire compatible")]
-        R2[("Cloudflare R2<br/>thumbnails + installers")]
-        Redis[("Redis<br/>cache + rate limit")]
-        PayMongo["PayMongo API<br/>(card + 3DS)"]
-        Resend["Resend<br/>(email + OTP)"]
-    end
-
-    React -- "HTTPS / REST<br/>(axios)" --> Lambda
-    Tauri -- "HTTP GET ZIP" --> R2
-    Lambda --> TiDB
-    Lambda --> R2
-    Lambda --> Redis
-    Lambda --> PayMongo
-    Lambda --> Resend
-    PayMongo -. "webhook" .-> Lambda
+           ▲
+           │ (Tauri client downloads installer ZIP directly)
+           │
+   Game .zip → /Users/<you>/AppData/Roaming/
+              com.ascientehub.app/games/<slug>/
+              → walkdir finds *.exe → spawn child process
 ```
 
-**Request lifecycle (cold start):**
+**Notable architectural choices:**
 
-1. Client calls `https://<lambda-function-url>/api/...`.
-2. `OPTIONS` preflights short-circuit before DB init for snappy CORS.
-3. First request initializes Sequelize, sets up associations, runs a non-destructive `ensureGameSchema()` to add any missing columns, and caches the connection in module scope (warm Lambdas reuse it).
-4. For safe public `GET`s without auth headers (`/api/public/*`, `/api/games`, `/api/games/:id`), the handler checks Redis first; cache hits return immediately. Cache TTL is 1 hour.
-5. Otherwise the request flows through Express middleware (CORS, JSON, rate limit, auth) into the route handler.
-6. CORS headers are force-injected on every response, including 5xx, so the desktop client never sees a missing-CORS error.
+- **Lambda cold-start hardening** in `src/lambda.ts`: `OPTIONS` preflights short-circuit before DB init, the Sequelize connection is cached at module scope, and `ensureGameSchema()` adds optional columns (`installerUrl`, `videoUrl`) idempotently on cold starts so deployments tolerate stale schemas.
+- **Public-GET cache** (Redis, 1h TTL) on `/api/public/*`, `/api/games`, and `/api/games/:id` — only when no auth headers are present, so authenticated users always see fresh data.
+- **CORS headers force-injected** on every response (including 5xx), so the desktop client never sees a missing-CORS error.
+- **Direct R2 uploads** capped at **50 MB** — larger installers should be uploaded out-of-band to R2 and the resulting URL stored in `games.installerUrl`.
 
 ---
 
 ## Tech Stack
 
-### Frontend (`ascientehub-frontend`)
-
-| Layer | Choice |
-|---|---|
-| Desktop shell | **Tauri 2** (Rust 2021 edition) |
-| UI framework | **React 18** + TypeScript 4.9 |
-| Build tool | `react-scripts` (CRA) |
-| Routing | `react-router-dom` 6 |
-| Styling | **Tailwind CSS 3** + PostCSS |
-| HTTP | `axios` |
-| Tauri Rust deps | `reqwest` (rustls-tls), `zip`, `tokio`, `walkdir`, `webbrowser` |
-| Distribution | Portable Windows ZIP (~5 MB) |
-
 ### Backend (`ascientehub-backend`)
 
-| Layer | Choice |
-|---|---|
-| Runtime | **Node.js 18** (TypeScript 6) |
-| Framework | **Express 5** |
-| ORM | **Sequelize 6** (`mysql2` driver) |
-| Database | **TiDB Serverless** (MySQL-wire-compatible, SSL) |
-| Auth | **JWT** (`jsonwebtoken`) + **bcrypt** password hashing |
-| Validation | **Yup** |
-| Object storage | **Cloudflare R2** via `@aws-sdk/client-s3` (S3-compatible) |
-| Email | **Resend** + `nodemailer` fallback |
-| Cache + rate limit | **Redis** via `ioredis`, `node-cache` fallback |
-| Payments | **PayMongo** REST API (PHP, 3DS automatic) |
-| Uploads | `multer` (multipart/form-data) |
-| Lambda adapter | `@vendia/serverless-express` |
-| Test | Jest + Supertest |
-| Migrations | `sequelize-cli` |
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Runtime | Node.js 18 + TypeScript 6 | Serverless-friendly, mature ecosystem |
+| Framework | Express 5 | Familiar, swappable, works fine in Lambda |
+| Lambda adapter | `@vendia/serverless-express` | Maps API Gateway / Function URL events to Express |
+| ORM | Sequelize 6 | Models + associations + migrations in one package |
+| Database | TiDB Cloud Serverless | MySQL wire-compatible, **5 GB free**, no cold start |
+| Driver | `mysql2` | Required for TiDB compatibility |
+| Auth | JWT (`jsonwebtoken`) + bcrypt | Stateless, standard |
+| Validation | Yup | Tiny, ergonomic, no plugin churn |
+| Object storage | Cloudflare R2 via `@aws-sdk/client-s3` | **Zero egress fees**, S3-compatible API |
+| Uploads | Multer + R2 | Multipart on the way in, S3 PUT on the way out |
+| Email | Resend + nodemailer fallback | Resend free 100/day, fallback for SMTP |
+| Cache + rate limit | Redis via `ioredis` + `node-cache` fallback | Cheap, fast, free tier (Upstash) |
+| Payments | PayMongo REST (PHP, 3DS auto) | Local PH provider, free signup |
+| Test | Jest + Supertest | Standard Node testing |
+| CI/CD | GitHub Actions → `aws lambda update-function-code` | Free for private repos under monthly limits |
+
+### Frontend (`ascientehub-frontend`)
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Desktop shell | Tauri 2 (Rust 2021) | ~5 MB binary vs Electron's 100+ MB |
+| UI framework | React 18 + TypeScript 4.9 | Familiar, fast to iterate in |
+| Build | `react-scripts` (CRA) | Just enough for an SPA |
+| Routing | `react-router-dom` 6 | Nested route layouts |
+| Styling | Tailwind CSS 3 | Utility classes scale better than CSS modules |
+| HTTP | axios | Interceptors for JWT refresh / error handling |
+| Tauri Rust deps | `reqwest`, `zip`, `tokio`, `walkdir`, `webbrowser` | Streaming downloads, ZIP extraction, OS-default browser |
+| Distribution | Portable Windows ZIP + signed installer (.exe) | GitHub Releases (free) — no app-store gatekeepers |
+
+---
+
+## Database Design
+
+All primary keys are UUID v4. Relationships are wired in `src/models/associations.ts`. Schema is managed by Sequelize `sync()` plus a defensive `ensureGameSchema()` step on cold start that adds optional columns idempotently.
+
+### `users`
+Player, developer, and admin accounts. `roleId` references `roles`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | UUIDv4 |
+| `username` | VARCHAR | unique |
+| `email` | VARCHAR | unique, validated |
+| `password` | VARCHAR | bcrypt hash, nullable for OAuth |
+| `roleId` | UUID (FK → roles.id) | not null |
+| `isVerified` | BOOLEAN | default false |
+| `isBanned` | BOOLEAN | default false |
+| `avatarUrl` | VARCHAR | R2 URL, optional |
+| `provider` | ENUM | `'local' \| 'google'`, default `'local'` |
+| `status` | ENUM | `'active' \| 'pending' \| 'rejected'` (developer-application gate) |
+| `rejectionReason` | TEXT | optional |
+| `canReapplyAt` | DATETIME | re-apply cooldown |
+
+### `roles`
+Three roles seeded at boot: `User`, `Developer`, `Admin`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `name` | VARCHAR | unique |
+
+### `categories`
+Game categories (Action, RPG, etc.).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `name` | VARCHAR | unique |
+| `slug` | VARCHAR | unique, URL-safe |
+| `description` | TEXT | optional |
+
+### `games`
+The catalog. Slug auto-generated from title in a `beforeValidate` Sequelize hook.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `title` | VARCHAR | not null |
+| `slug` | VARCHAR | unique, lowercase + dashed |
+| `description` | TEXT | not null |
+| `basePrice` | DECIMAL(10,2) | PHP, not null |
+| `salePrice` | DECIMAL(10,2) | optional |
+| `onSale` | BOOLEAN | default false |
+| `saleEndsAt` | DATETIME | optional |
+| `sizeInGb` | FLOAT | not null |
+| `developerId` | UUID (FK → users.id) | not null |
+| `categoryId` | UUID (FK → categories.id) | not null |
+| `status` | ENUM | `'pending' \| 'approved' \| 'rejected'` (admin moderation) |
+| `rejectionReason` | VARCHAR | optional |
+| `thumbnailUrl` | VARCHAR | R2 URL, not null |
+| `installerUrl` | TEXT | R2 URL of `.zip`, optional |
+| `videoUrl` | VARCHAR | R2 URL of trailer, optional |
+
+### `game_media`
+Per-game gallery (screenshots + trailers). One game has many media rows.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `gameId` | UUID (FK → games.id) | not null |
+| `url` | VARCHAR | R2 URL |
+| `type` | ENUM | `'image' \| 'video'`, default `'image'` |
+| `isFeatured` | BOOLEAN | one per game shown as gallery hero |
+
+### `libraries`
+Junction table — a row here means "user owns this game". `purchaseDate` overrides `createdAt`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `userId` | UUID (FK → users.id) | not null |
+| `gameId` | UUID (FK → games.id) | not null |
+| `purchaseDate` | DATETIME | aliased from `createdAt` |
+
+### `carts`
+Items the user hasn't purchased yet.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `userId` | UUID (FK → users.id) | not null |
+| `gameId` | UUID (FK → games.id) | not null |
+
+### `transactions`
+Financial audit trail — one row per attempted/successful charge.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `userId` | UUID (FK → users.id) | not null |
+| `gameId` | UUID (FK → games.id) | not null |
+| `amount` | DECIMAL(10,2) | PHP, not null |
+| `status` | ENUM | `'pending' \| 'completed' \| 'failed'` |
+
+### `reviews`
+1-5 rating + comment, per (user, game) pair.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `userId` | UUID (FK → users.id) | not null |
+| `gameId` | UUID (FK → games.id) | not null |
+| `rating` | TINYINT | 1-5, validated |
+| `comment` | TEXT | not null |
+
+### `payment_methods`
+Tokenized cards. **No PAN ever stored** — only the PayMongo handle and display metadata.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `userId` | UUID (FK → users.id) | not null |
+| `paymongoId` | VARCHAR | unique, the PayMongo payment-method ID |
+| `type` | VARCHAR | `'card'` etc. |
+| `brand` | VARCHAR | `'visa'`, `'mastercard'`, etc. |
+| `last4` | VARCHAR | display only |
+| `expMonth` / `expYear` | INTEGER | display only |
+| `isDefault` | BOOLEAN | default false |
+
+### `subscriptions`
+"Pay-to-publish" plan for developer accounts.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `developerId` | UUID (FK → users.id) | not null |
+| `status` | ENUM | `'active' \| 'expired'` |
+| `nextBillingDate` | DATETIME | not null |
+
+### `otps`
+6-character codes for verification, password reset, account deletion. **Keyed by email** (not userId) so verification works *before* the user record exists.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID (PK) | |
+| `email` | VARCHAR | validated |
+| `code` | VARCHAR(6) | 6 chars |
+| `type` | ENUM | `'verification' \| 'password_reset' \| 'account_deletion'` |
+| `expiresAt` | DATETIME | enforced |
 
 ---
 
 ## Repository Layout
 
-### Backend tree (high level)
+### Backend tree
 
 ```
 ascientehub-backend/
@@ -131,29 +302,29 @@ ascientehub-backend/
 ├── jest.config.js
 ├── tsconfig.json
 └── src/
-    ├── app.ts            # Express app + route registration
-    ├── lambda.ts         # AWS Lambda handler (cold-start hardened)
-    ├── index.ts          # Local dev entrypoint
-    ├── config/           # db.config.ts, constants.ts
-    ├── controllers/      # admin, auth, cart, category, developer,
-    │                     # game, meta, payment, review, upload, user
-    ├── services/         # Business logic for each domain
-    ├── repositories/     # Sequelize query layer
-    ├── routes/           # Express routers (mounted under /api/*)
-    ├── models/           # 12 Sequelize models + associations.ts
-    ├── middlewares/      # auth, role, validator, upload, rateLimit
-    ├── schemas/          # Yup validation schemas
-    ├── seeders/          # Roles, categories, production user
-    ├── scripts/          # provision, seed, seed-demo-game
-    ├── dtos/             # Data transfer types
-    └── utils/            # caching (Redis), mailer
+    ├── app.ts                             # Express app + route registration
+    ├── lambda.ts                          # AWS Lambda handler (cold-start hardened)
+    ├── index.ts                           # Local dev entrypoint
+    ├── config/                            # db.config.ts, constants.ts
+    ├── controllers/                       # admin, auth, cart, category, developer,
+    │                                      # game, meta, payment, review, upload, user
+    ├── services/                          # business logic per domain
+    ├── repositories/                      # Sequelize query layer
+    ├── routes/                            # Express routers (mounted under /api/*)
+    ├── models/                            # 12 Sequelize models + associations.ts
+    ├── middlewares/                       # auth, role, validator, upload, rateLimit
+    ├── schemas/                           # Yup validation schemas
+    ├── seeders/                           # roles, categories, production-user
+    ├── scripts/                           # provision, seed, seed-demo-game
+    ├── dtos/                              # Data transfer types
+    └── utils/                             # caching (Redis), mailer
 ```
 
-### Frontend tree (high level)
+### Frontend tree
 
 ```
 ascientehub-frontend/
-├── AscienteHub-v1.0.0-windows-portable.zip   # Shipped binary
+├── AscienteHub-v1.0.0-windows-portable.zip  # Shipped binary
 ├── postcss.config.js / tailwind.config.js
 ├── public/index.html
 ├── src-tauri/                                # Rust desktop shell
@@ -178,7 +349,7 @@ ascientehub-frontend/
     │   ├── ManageGames.tsx, ManageGameDetail.tsx        # developer
     │   └── AdminPendingDevelopers.tsx,
     │       AdminPendingGames.tsx, AdminUsers.tsx        # admin
-    ├── services/                              # One axios wrapper per domain
+    ├── services/                              # one axios wrapper per domain
     ├── styles/tailwind.css
     └── utils/                                 # tauriRuntime, jwtHelpers,
                                                # roleHelpers, formatters,
@@ -187,180 +358,14 @@ ascientehub-frontend/
 
 ---
 
-## Database Design
-
-All primary keys are UUID v4. Relationships are wired in `src/models/associations.ts`. Schema is managed by Sequelize `sync()` plus a defensive `ensureGameSchema()` step on cold start that adds optional columns (`installerUrl`, `videoUrl`) idempotently.
-
-```mermaid
-erDiagram
-    ROLES ||--o{ USERS : assigns
-    USERS ||--o{ GAMES : "develops (developerId)"
-    USERS ||--o{ REVIEWS : writes
-    USERS ||--o{ TRANSACTIONS : pays
-    USERS ||--o{ CARTS : has
-    USERS ||--o{ PAYMENT_METHODS : owns
-    USERS ||--o| SUBSCRIPTIONS : "developer plan"
-    USERS }o--|| OTPS : "by email"
-
-    CATEGORIES ||--o{ GAMES : groups
-    GAMES ||--o{ GAME_MEDIA : "has gallery"
-    GAMES ||--o{ REVIEWS : receives
-    GAMES ||--o{ TRANSACTIONS : "is sold in"
-    GAMES ||--o{ CARTS : "queued in"
-
-    USERS ||--o{ LIBRARIES : owns
-    GAMES ||--o{ LIBRARIES : "is owned via"
-
-    USERS {
-        uuid id PK
-        string username UK
-        string email UK
-        string password "bcrypt"
-        uuid roleId FK
-        bool isVerified
-        bool isBanned
-        string avatarUrl
-        enum provider "local | google"
-        enum status "active | pending | rejected"
-        text rejectionReason
-        date canReapplyAt
-    }
-    ROLES {
-        uuid id PK
-        string name UK
-    }
-    CATEGORIES {
-        uuid id PK
-        string name UK
-        string slug UK
-        text description
-    }
-    GAMES {
-        uuid id PK
-        string title
-        string slug UK
-        text description
-        decimal basePrice
-        decimal salePrice
-        bool onSale
-        date saleEndsAt
-        float sizeInGb
-        uuid developerId FK
-        uuid categoryId FK
-        enum status "pending | approved | rejected"
-        string thumbnailUrl
-        text installerUrl
-        string videoUrl
-    }
-    GAME_MEDIA {
-        uuid id PK
-        uuid gameId FK
-        string url
-        enum type "image | video"
-        bool isFeatured
-    }
-    LIBRARIES {
-        uuid id PK
-        uuid userId FK
-        uuid gameId FK
-        date purchaseDate
-    }
-    CARTS {
-        uuid id PK
-        uuid userId FK
-        uuid gameId FK
-    }
-    TRANSACTIONS {
-        uuid id PK
-        uuid userId FK
-        uuid gameId FK
-        decimal amount
-        enum status "pending | completed | failed"
-    }
-    REVIEWS {
-        uuid id PK
-        uuid userId FK
-        uuid gameId FK
-        tinyint rating "1-5"
-        text comment
-    }
-    PAYMENT_METHODS {
-        uuid id PK
-        uuid userId FK
-        string paymongoId UK
-        string type
-        string brand
-        string last4
-        int expMonth
-        int expYear
-        bool isDefault
-    }
-    SUBSCRIPTIONS {
-        uuid id PK
-        uuid developerId FK
-        enum status "active | expired"
-        date nextBillingDate
-    }
-    OTPS {
-        uuid id PK
-        string email
-        string code "6 chars"
-        enum type "verification | password_reset | account_deletion"
-        date expiresAt
-    }
-```
-
-### Notes on the schema
-
-- **Library is a true junction table** (`User ↔ Game`, with a `purchaseDate` overriding `createdAt`). A user "owning" a game means a row exists here.
-- **Game.slug auto-generates** from `title` in a `beforeValidate` hook (lowercase, dashes, alphanumerics) so storefront URLs are SEO-friendly.
-- **Otp is keyed to `email`, not `userId`** — this is intentional so verification OTPs work *before* the user record exists.
-- **PaymentMethod.paymongoId** is the unique handle PayMongo gives each tokenized card; the rest of the row is display metadata only (no PAN ever stored).
-- **Subscription is per-developer**, not per-user — it represents the "pay to publish" plan for developer accounts.
-
----
-
-## Feature Tour
-
-### Player
-
-- Email/password signup with **OTP email verification** (Resend)
-- Forgot/reset password (OTP-driven)
-- Browse public catalog (`/games`) — featured + full list, both Redis-cached
-- Game detail page with gallery, video trailer, reviews, ratings
-- **Cart** with multi-game checkout
-- **Library** — list of owned games with one-click install/launch
-- **Purchase history** with transaction status
-- **Saved cards** (PayMongo payment methods) — list, set default, delete
-- Profile editing, avatar upload (R2), password change
-- **Soft account deletion** with OTP-guarded confirmation
-
-### Developer
-
-- Apply via `/profile/apply-developer` — populates `users.status = 'pending'`
-- After admin approval, gain access to `/manage-games`:
-  - Submit new games (status starts `pending`)
-  - Upload thumbnails, gallery (screenshots), trailer, and `.zip` installers via R2
-  - Edit pricing, sales, descriptions
-  - View earnings on approved titles
-- Per-developer subscription enforced (`subscriptions` table)
-
-### Admin
-
-- `/admin/pending-developers` — approve/reject applicants with reason and re-apply cooldown
-- `/admin/pending-games` — moderate game submissions
-- `/admin/users` — full user roster, ban/unban controls
-
----
-
 ## API Reference
 
 The Express app mounts ten route groups plus a health check.
 
-| Prefix | Auth | Purpose |
+| Prefix | Auth | Surface |
 |---|---|---|
-| `/health` | none | Liveness probe (returns `{ status: "UP", ... }`) |
-| `/api/public` | none | Catalog browsing (anonymous, cached) |
+| `GET /health` | none | Liveness probe |
+| `/api/public` | none | Catalog browsing (anonymous, **Redis-cached 1h**) |
 | `/api/auth` | none for login/register | Login, register, OTP verify, forgot/reset password |
 | `/api/users` | JWT | Profile, password change, deletion flow |
 | `/api/games` | JWT | Game CRUD (developer + admin scoped) |
@@ -374,7 +379,7 @@ The Express app mounts ten route groups plus a health check.
 ### Selected payment endpoints
 
 ```
-POST   /api/payments/sources              create PayMongo source / tokenize card
+POST   /api/payments/sources              tokenize card → PayMongo source
 POST   /api/payments/checkout             checkout entire cart in one charge
 POST   /api/payments                      single-game purchase
 POST   /api/payments/complete             finalize 3DS-authorized payment
@@ -387,107 +392,97 @@ POST   /api/payments/webhook              PUBLIC — PayMongo callbacks
 
 ---
 
-## Game Launcher Mechanics
+## Authentication & Credentials
 
-The Tauri shell exposes three Rust commands to the React UI via `@tauri-apps/api`:
+The launcher uses **email-based OTP verification** for new accounts.
 
-```rust
-#[tauri::command]
-async fn download_and_extract_game(app, url, slug) -> Result<String, String>
+### Seeded production accounts
 
-#[tauri::command]
-fn launch_game(exe_path) -> Result<(), String>
+`npm run seed:production` (or `npm run seed-demo-game:production`) creates these accounts. All share the same password.
 
-#[tauri::command]
-fn open_external_url(url) -> Result<(), String>
-```
+| Username | Email | Role | Password |
+|---|---|---|---|
+| `Admin1` | `admin1@example.com` | Admin | `Password123` |
+| `Developer1` | `developer1@example.com` | Developer | `Password123` |
+| `Buyer1` | `buyer1@example.com` | User | `Password123` |
 
-**Install flow:**
+> Seeded users are pre-verified (`isVerified: true`) so you can sign in immediately without an OTP.
 
-1. User clicks **Install** on a library entry → React calls `download_and_extract_game(installerUrl, gameSlug)`.
-2. Rust resolves the per-user app-data dir (e.g. `%APPDATA%/com.ascientehub.app/games/<slug>/`) and creates it.
-3. If a `.exe` is already extracted there, the path is returned immediately — installs are idempotent.
-4. Otherwise, `reqwest` streams the ZIP, validates the `PK` signature, writes `game.zip`, and `zip::ZipArchive` extracts in place.
-5. `walkdir` finds the first `.exe` in the tree and returns its absolute path.
+### Self-registration flow
 
-**Launch flow:**
+1. Open the launcher → **Sign Up**.
+2. Enter username, email, password.
+3. Receive a **6-digit OTP** by email (Resend → check spam folder).
+4. Enter OTP → account becomes `isVerified: true`.
+5. Sign in.
 
-1. User clicks **Play** → React calls `launch_game(exe_path)`.
-2. Rust spawns the executable as a detached child process with `cwd` set to the executable's directory (so the game finds its assets).
-
-**External links** (developer storefronts, support pages, etc.) go through `open_external_url`, which uses the `webbrowser` crate to hand off to the OS default browser.
+Other auth flows: forgot password, change password, soft account deletion (OTP-confirmed).
 
 ---
 
-## Payment Flow (PayMongo)
-
-Card payments are denominated in **PHP** and converted to centavos (×100) before being sent to PayMongo. 3-D Secure is requested automatically.
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant FE as Launcher (React)
-    participant BE as Backend (Lambda)
-    participant PM as PayMongo
-    participant DB as TiDB
-
-    U->>FE: Enter card → click Pay
-    FE->>BE: POST /api/payments/sources (card details)
-    BE->>PM: POST /payment_methods
-    PM-->>BE: payment_method.id
-    BE->>PM: POST /payment_intents (amount, 3DS auto)
-    PM-->>BE: payment_intent (next_action: redirect)
-    BE-->>FE: redirect URL
-    FE->>U: Open 3DS challenge
-    U-->>PM: Authorize
-    PM-->>FE: returnUrl (success)
-    FE->>BE: POST /api/payments/complete
-    BE->>PM: POST /payment_intents/:id/attach
-    PM-->>BE: status: succeeded
-    BE->>DB: insert Transaction(completed) + Library row
-    BE-->>FE: receipt + library updated
-    PM-->>BE: webhook /api/payments/webhook (async confirm)
-```
-
-**Why both `/complete` and `/webhook`?** The synchronous `/complete` flow gives the user instant feedback when they return from the 3DS challenge; the webhook is the source of truth that reconciles any client-side dropout (closed window, network blip) so the library update is never lost.
-
----
-
-## Deployment Summary
+## Deployment
 
 ### Backend → AWS Lambda
 
-| Item | Value |
-|---|---|
-| Runtime | Node.js 18 |
-| Function name | `ascientehub-backend` |
-| Adapter | `@vendia/serverless-express` |
-| Trigger | AWS Lambda Function URL (HTTP) |
-| Cold-start opt | DB connection cached at module scope, OPTIONS short-circuited, schema self-heal idempotent |
-
-**CI/CD** (`.github/workflows/deploy-lambda.yml`) runs on every push to `main`:
+CI/CD lives at `.github/workflows/deploy-lambda.yml`:
 
 ```
+push to main
+   ↓
 checkout → setup-node@18 → npm ci → npm run build (tsc)
-        → zip dist/* + node_modules + package.json + lockfile
-        → aws lambda update-function-code --function-name ascientehub-backend
+   ↓
+zip dist/* + node_modules + package.json + lockfile → function.zip
+   ↓
+aws lambda update-function-code --function-name ascientehub-backend
 ```
 
-AWS credentials and region are injected from GitHub repo secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`).
+AWS credentials and region are injected from GitHub repo secrets:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
 
-### Database → TiDB Serverless
+The Lambda is exposed via a **Function URL** with `AuthType: NONE` (CORS handled in app).
 
-MySQL-wire-compatible, accessed via `mysql2` over **TLS**. Pool sized for serverless: `max: 5`, `min: 0`, `acquire: 30 s`, `idle: 10 s`. The free tier handles small bursts well; for production, raise the pool max only if Lambda concurrency exceeds it.
+### Database → TiDB Cloud Serverless
+
+MySQL-wire-compatible, accessed via `mysql2` over TLS. Pool sized for serverless: `max: 5`, `min: 0`, `acquire: 30 s`, `idle: 10 s`. The 5 GB free tier handles small-to-medium workloads with no cold-start penalty.
 
 ### Storage → Cloudflare R2
 
-Standard S3 SDK with `region: "auto"`, `forcePathStyle: true`. Direct uploads from Lambda are capped at **50 MB** per file; larger installers should be uploaded to R2 out-of-band and the resulting URL stored in `games.installerUrl`.
+Standard S3 SDK with `region: "auto"`, `forcePathStyle: true`. Direct uploads from Lambda are capped at **50 MB** per file. Game installers larger than that should be uploaded directly to R2 (e.g. via `rclone` or the dashboard) and the resulting URL stored in `games.installerUrl`.
 
-### Frontend → Portable Windows ZIP
+### Frontend → GitHub Releases
 
-The `src-tauri/` shell builds a self-contained Windows binary. The repo ships a pre-built `AscienteHub-v1.0.0-windows-portable.zip` (~5 MB) — unzip and run `AscienteHub.exe`. No installer required.
+`src-tauri/` builds a self-contained Windows binary. The signed installer (`ascientehub_0.1.0_x64-setup.exe`, ~4 MB) is published to GitHub Releases for direct download.
 
-To rebuild the launcher: `npm run build` produces the React bundle in `build/`, then `cargo tauri build` (or `tauri build` via `@tauri-apps/cli`) packages the desktop binary against `tauri.conf.json`.
+To rebuild: `npm run build` produces the React bundle in `build/`, then `cargo tauri build` (or `tauri build` via `@tauri-apps/cli`) packages the desktop binary against `tauri.conf.json`.
+
+---
+
+## Cost Breakdown
+
+> **Designed for $0/month forever** on free tiers across the entire stack. Production-grade infra at zero recurring cost.
+
+| Service | Free tier | We use | Headroom |
+|---------|-----------|--------|----------|
+| **AWS Lambda** | 1M invocations/mo + 400K GB-s | ~5K invocations/mo | **99.5%** |
+| **TiDB Cloud Serverless** | 5 GB storage, 250M RU/mo | <100 MB | **98%+** |
+| **Cloudflare R2** | 10 GB storage, 1M Class A ops, **zero egress** | <1 GB | **90%+** |
+| **Redis** (Upstash) | 10K commands/day | ~1K cmds/day | **90%** |
+| **Resend** | 3K emails/mo, 100/day | ~20/day during testing | **80%+** |
+| **PayMongo** | Free signup, no monthly fee | only transaction % | n/a |
+| **GitHub Actions** (private) | 2000 min/mo (Pro: more) | ~10 min/mo | **99.5%** |
+| **GitHub Releases** | unlimited public assets | <50 MB total | unlimited |
+
+**Total: $0/month**, with massive headroom on every line.
+
+**Why each free tier was chosen:**
+
+- **AWS Lambda over a long-running server** — pay only for actual invocations; idle launcher users cost zero.
+- **TiDB over RDS / Aurora** — RDS free tier expires after 12 months; TiDB Cloud's free tier is **perpetual**, no expiry.
+- **R2 over S3** — S3 charges per-GB egress; R2 is **zero egress**, which matters when shipping installer ZIPs to end users.
+- **Resend over SES** — SES requires production-mode approval and a verified domain; Resend works out of the box with a higher daily ceiling.
+- **PayMongo over Stripe** — local PH provider, lower cards-not-present fees, native PHP currency, no FX conversion.
 
 ---
 
@@ -504,7 +499,7 @@ npm install
 npm run dev          # nodemon src/index.ts on port 3001
 ```
 
-Useful scripts (from `package.json`):
+Useful scripts:
 
 ```bash
 npm run dev                       # local dev server (nodemon)
@@ -531,31 +526,29 @@ npm start             # CRA dev server on port 3001
 npx tauri dev         # spawns the Tauri shell against the dev server
 ```
 
-`tauri.conf.json` is configured to load the React dev server from `http://localhost:3001`. For production desktop builds: `npm run build && npx tauri build`.
+`tauri.conf.json` is configured to load the React dev server from `http://localhost:3001`. For production builds: `npm run build && npx tauri build`.
 
----
+### Environment Variables
 
-## Environment Variables
-
-### Backend (`.env.development` / `.env.production`)
+**Backend** (`.env.development` / `.env.production`):
 
 ```env
-# --- Database (TiDB Serverless) ---
+# Database (TiDB Cloud Serverless)
 DB_NAME=
 DB_USER=
 DB_PASSWORD=
 DB_HOST=
 DB_PORT=4000
 
-# --- Auth ---
+# Auth
 JWT_SECRET=
 JWT_EXPIRES_IN=7d
 
-# --- Email (Resend) ---
+# Email (Resend)
 RESEND_API_KEY=
 EMAIL_FROM=
 
-# --- Cloudflare R2 ---
+# Cloudflare R2
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
 R2_ENDPOINT=
@@ -563,39 +556,22 @@ R2_BUCKET_NAME=
 R2_PUBLIC_URL=
 LAMBDA_UPLOAD_URL=        # optional, for offloaded large uploads
 
-# --- Redis (cache + rate limit) ---
+# Redis
 REDIS_URL=
 
-# --- PayMongo ---
+# PayMongo
 PAYMONGO_SECRET_KEY=
 PAYMONGO_PUBLIC_KEY=
 ```
 
-### Frontend (`.env.development` / `.env.production`)
+**Frontend** (`.env.development` / `.env.production`):
 
 ```env
 REACT_APP_API_URL=http://localhost:3001    # or your Lambda Function URL
 ```
 
-In CI, inject `REACT_APP_API_URL` via GitHub secrets rather than committing `.env.production`.
-
----
-
-## Download the Launcher
-
-A pre-built Windows portable build is committed to the frontend repo:
-
-**[AscienteHub-v1.0.0-windows-portable.zip](https://github.com/Asciente-rks/ascientehub-frontend/blob/main/AscienteHub-v1.0.0-windows-portable.zip)** (~5 MB)
-
-Unzip anywhere, run `AscienteHub.exe`. The launcher stores installed games in `%APPDATA%/com.ascientehub.app/games/<slug>/`.
-
 ---
 
 ## Author
 
-Built by [Asciente-rks](https://github.com/Asciente-rks) — full-stack engineering and game development.
-The flagship title in the catalog is the author's own indie game; remaining catalog entries are demo titles used to exercise the storefront and payment flow.
-
----
-
-*This README documents the system end-to-end. For repo-specific deep dives (Sequelize models, individual Tauri commands, controller contracts), browse the source — the code is small enough to read top to bottom.*
+Built by **Ralph Kenneth F. Sonio** ([@Asciente-rks](https://github.com/Asciente-rks)) — full-stack engineering and game development. The flagship title in the catalog is the author's own indie game, *The Last Light*, an extended tutorial-horror project built on User1 Productions' Unity 3D series.
