@@ -570,7 +570,7 @@ cd ascientehub-backend
 npm install
 
 # Create .env.development with the variables listed above
-npm run dev              # nodemon src/index.ts on port 3001
+npm run dev              # nodemon src/index.ts on port 3000 (override with PORT=...)
 ```
 
 Useful scripts:
